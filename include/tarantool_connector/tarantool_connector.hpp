@@ -62,19 +62,15 @@ public:
                 -> void
             {
               // int answer = co_await get_answer(boost::asio::deferred);
-              auto [ec, conn] = co_await detail::Connection::connect(
-                  exec,
-                  std::move(cfg),
-                  boost::asio::as_tuple(boost::asio::deferred));
+              auto conn = std::make_shared<detail::Connection>(exec, cfg);
+              error_code ec {};
+              co_await conn->connect(
+                  boost::asio::redirect_error(boost::asio::deferred, ec));
               if (ec) {
                 co_return state.complete(ec, nullptr);
               }
 
               assert(conn != nullptr);
-              cfg.logger()->handle(LogLevel::Info,
-                                   std::to_string(cfg.port()).c_str(),
-                                   4,
-                                   std::source_location::current());
               // construct Connector and return it
               ConnectorSptr connector(new Connector(std::move(conn)));
               co_return state.complete(error_code {}, std::move(connector));
@@ -139,6 +135,14 @@ public:
     // @todo implement
   }
 
+  /**
+   * Generates new unique within this connection request id
+   */
+  detail::iproto::OperationId generate_id()
+  {
+    return m_request_id.fetch_add(1, std::memory_order_relaxed);
+  }
+
   // create watcher(queue_size)
   //   get_event
   // class Watcher
@@ -156,8 +160,18 @@ private:
       : m_conn(std::move(conn))
       , s_(State::Connected)
   {
-    // start receive operation
+    // @todo start receive operation
+    // read event
+    // if error and not stopped -> reconnect
+    // if error and stopped -> return
+    // decode header
+    // call completion handler
   }
+
+  // @todo start
+  //   save sptr to this for graceful shutdown
+  // @todo stop
+  //   post stop
 
   enum class State
   {
@@ -168,14 +182,14 @@ private:
 
   State s_;
 
-  std::atomic<uint64_t> m_request_id {0};
-
+  std::atomic<detail::iproto::OperationId> m_request_id {0};
   std::unordered_map<detail::iproto::OperationId,
                      boost::asio::any_completion_handler<void(error_code)>>
       m_requests;
   // watchers
 
-  // Destructon order matters. Connection must stay in the end.
+  // Destruction order matters. Connection must stay in the end.
+  // @todo async future for async_stop
   detail::ConnectionSptr m_conn;
 };
 

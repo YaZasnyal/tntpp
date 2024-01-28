@@ -16,7 +16,7 @@ static void simple_loop(benchmark::State& s)
         ctx.run();
       });
 
-  tntpp::StdoutLogger logger;
+  tntpp::StdoutLogger logger(tntpp::LogLevel::Trace);
   boost::asio::co_spawn(
       ctx,
       [&]() -> boost::asio::awaitable<void>
@@ -27,7 +27,7 @@ static void simple_loop(benchmark::State& s)
         for (auto _ : s) {
            auto [ec, conn] = co_await tntpp::Connector::connect(
               ctx.get_executor(),
-              tntpp::Config().host("localhost").port(3302).logger(&logger),
+              tntpp::Config().host("localhost").port(3301).logger(&logger),
               boost::asio::as_tuple(boost::asio::use_awaitable));
 
           if (++i % 100 == 0)

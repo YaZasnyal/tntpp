@@ -71,15 +71,95 @@ template<class Stream>
 class Framing
 {
 public:
+  using Self = Framing<Stream>;
+
+  /// The type of the next layer.
+  using next_layer_type = std::remove_reference_t<Stream>;
+  /// The type of the lowest layer.
+  using lowest_layer_type = typename next_layer_type::lowest_layer_type;
+  /// The type of the executor associated with the object.
+  using executor_type = typename lowest_layer_type::executor_type;
+
   Framing(Stream s)
-      : s_(s)
+      : m_next_layer(std::move(s))
   {
   }
+  Framing(const Self&) = delete;
+  Framing(Self&&) = default;
+  Self& operator=(const Self&) = delete;
+  Self& operator=(Self&&) = default;
 
-  // read message
+  template<class H>
+  auto receive_message(H&& handler)
+  {
+    return boost::asio::async_initiate<H, void(error_code, std::string)>(
+        boost::asio::experimental::co_composed<void(error_code, std::string)>(
+            [this](auto state)
+            {
+              // read the type - 1 octet
+
+              // read the rest of the length
+
+              // read the rest of the packet
+
+              // read message length (MP_UINT32) - 5 octets
+              // According to:
+              // https://github.com/msgpack/msgpack/blob/master/spec.md#int-format-family
+              //
+              // uint 32 stores a 32-bit big-endian unsigned integer
+              // +--------+--------+--------+--------+--------+
+              // |  0xce  |ZZZZZZZZ|ZZZZZZZZ|ZZZZZZZZ|ZZZZZZZZ|
+              // +--------+--------+--------+--------+--------+
+
+              // check if 0xcf
+
+              // read the body
+              co_return state.complete(error_code {}, "");
+            }),
+        handler);
+  }
+
+  void clear()
+  {
+    // @todo clear
+  }
+
+  /**
+   * @brief next_layer returns next layer in the stack of stream layers.
+   */
+  next_layer_type& next_layer() { return m_next_layer; }
+
+  /**
+   * @brief next_layer returns next layer in the stack of stream layers.
+   */
+  const next_layer_type& next_layer() const { return m_next_layer; }
+
+  /**
+   * @brief lowest_layer returns the lowest layer in the stack of stream
+   * layers.
+   */
+  lowest_layer_type& lowest_layer() { return m_next_layer.lowest_layer(); }
+
+  /**
+   * @brief lowest_layer returns the lowest layer in the stack of stream
+   * layers.
+   */
+  const lowest_layer_type& lowest_layer() const
+  {
+    return m_next_layer.lowest_layer();
+  }
+
+  /**
+   * @brief get_executor obtains the executor object that the stream uses
+   * to run asynchronous operations
+   */
+  executor_type get_executor() const noexcept
+  {
+    return m_next_layer.get_executor();
+  }
 
 private:
-  Stream s_;
+  Stream m_next_layer;
 };
 
 }  // namespace tntpp::detail

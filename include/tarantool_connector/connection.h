@@ -35,6 +35,17 @@ class Connection
 public:
   using Strand = boost::asio::strand<boost::asio::any_io_executor>;
   using Socket = boost::asio::ip::tcp::socket;
+  using Stream = Framing<Socket>;
+
+  using Executor = Strand;
+
+  Connection(boost::asio::any_io_executor exec, Config cfg)
+      : m_strand(boost::asio::make_strand(exec))
+      , m_stream(Socket(m_strand))
+      , m_config(std::move(cfg))
+      , m_queue(cfg.send_queue_capacity())
+  {
+  }
 
   Connection(const Connection&) = delete;
   Connection(Connection&&) = default;
@@ -47,100 +58,94 @@ public:
   }
 
   template<class H>
-  static auto connect(boost::asio::any_io_executor exec,
-                      Config cfg,
-                      H&& handler)
+  auto connect(H&& handler)
   {
-    return boost::asio::async_initiate<H, void(error_code, ConnectionSptr)>(
-        boost::asio::experimental::co_composed<void(error_code,
-                                                    ConnectionSptr)>(
-            [](auto state, boost::asio::any_io_executor exec, Config cfg)
-                -> void
+    return boost::asio::async_initiate<H, void(error_code)>(
+        boost::asio::experimental::co_composed<void(error_code)>(
+            [this](auto state) -> void
             {
               using tcp = boost::asio::ip::tcp;
+              using boost::asio::redirect_error;
+              using boost::asio::deferred;
 
-              error_code ec;
-              boost::asio::ip::tcp::resolver resolver(exec);
+              auto& socket = m_stream.next_layer();
+              assert(!socket.is_open());
+
+              error_code ec {};
+              tcp::resolver resolver(m_strand);
               auto addresses = co_await resolver.async_resolve(
-                  cfg.host(),
-                  "",
-                  boost::asio::redirect_error(boost::asio::deferred, ec));
+                  m_config.host(), "", redirect_error(deferred, ec));
               if (ec) {
-                TNTPP_LOG_MESSAGE(
-                    cfg.logger(),
+                TNTPP_LOG(
+                    m_config.logger(),
                     Info,
                     "unable to resolve address: {{host='{}', error='{}'}}",
-                    cfg.host(),
+                    m_config.host(),
                     ec.to_string());
-                co_return state.complete(ec, nullptr);
+                co_return state.complete(ec);
               }
 
               // try all available addresses returned by resolver
-              Strand strand = boost::asio::make_strand(exec);
-              tcp::socket socket(strand);
               for (const auto& address : addresses) {
+                m_stream.clear();
                 socket.close();
                 tcp::endpoint endpoint(address.endpoint().address(),
-                                       cfg.port());
-                TNTPP_LOG_MESSAGE(cfg.logger(),
-                                  Debug,
-                                  "trying to connect: {{endpoint={}}}",
-                                  endpoint);
-                co_await socket.async_connect(
-                    endpoint,
-                    boost::asio::redirect_error(boost::asio::deferred, ec));
+                                       m_config.port());
+                TNTPP_LOG(m_config.logger(),
+                          Debug,
+                          "trying to connect: {{endpoint={}}}",
+                          endpoint);
+                co_await socket.async_connect(endpoint,
+                                              redirect_error(deferred, ec));
                 if (ec) {
-                  TNTPP_LOG_MESSAGE(cfg.logger(),
-                                    Info,
-                                    "unable to establish connection: "
-                                    "{{endpoint='{}', error='{}'}}",
-                                    endpoint,
-                                    ec.to_string());
+                  TNTPP_LOG(m_config.logger(),
+                            Info,
+                            "unable to establish connection: {{endpoint='{}', "
+                            "error='{}'}}",
+                            endpoint,
+                            ec.to_string());
                   continue;
                 }
-                socket.set_option(tcp::no_delay(cfg.nodelay()));
-                TNTPP_LOG_MESSAGE(cfg.logger(),
-                                  Info,
-                                  "connection established; "
-                                  "{{endpoint='{}', no_delay={}}}",
-                                  socket.remote_endpoint(),
-                                  cfg.nodelay());
+                socket.set_option(tcp::no_delay(m_config.nodelay()));
+                TNTPP_LOG(
+                    m_config.logger(),
+                    Info,
+                    "connection established; {{endpoint='{}', no_delay={}}}",
+                    socket.remote_endpoint(),
+                    m_config.nodelay());
 
                 // @todo add timeout
                 auto salt = co_await read_tarantool_hello(
-                    socket,
-                    boost::asio::redirect_error(boost::asio::deferred, ec));
+                    socket, redirect_error(deferred, ec));
                 if (ec) {
-                  TNTPP_LOG_MESSAGE(
-                      cfg.logger(),
-                      Info,
-                      "unable to read hello message: {{error='{}'}}",
-                      ec.to_string());
+                  TNTPP_LOG(m_config.logger(),
+                            Info,
+                            "unable to read hello message: {{error='{}'}}",
+                            ec.to_string());
                   continue;
                 }
                 // @todo add auth
 
-                auto conn = ConnectionSptr(new Connection(
-                    std::move(strand), std::move(socket), std::move(cfg)));
-                co_return state.complete(error_code {}, std::move(conn));
+                co_return state.complete(error_code {});
               }
 
-              TNTPP_LOG_MESSAGE(cfg.logger(),
-                                Info,
-                                "unable to establish connection to any of "
-                                "resolved endpoints: {{host={}}}",
-                                cfg.host());
+              TNTPP_LOG(m_config.logger(),
+                        Info,
+                        "unable to establish connection to any of resolved "
+                        "endpoints: {{host={}}}",
+                        m_config.host());
               co_return state.complete(
                   error_code(boost::system::errc::not_connected,
-                             boost::system::system_category()),
-                  nullptr);
+                             boost::system::system_category()));
             }),
-        handler,
-        exec,
-        std::move(cfg));
+        handler);
   }
 
-  // async reconnect
+  template<class H>
+  auto receive_message(H&& handler)
+  {
+    return m_stream.receive_message(std::forward<decltype(handler)>(handler));
+  }
 
   void send_data(detail::Data data)
   {
@@ -158,21 +163,14 @@ public:
   [[nodiscard]] const Config& get_config() const { return m_config; }
 
 private:
-  Connection(Strand exec, Socket socket, Config cfg)
-      : m_strand(std::move(exec))
-      , m_socket(std::move(socket))
-      , m_config(std::move(cfg))
-      , m_queue(cfg.send_queue_capacity())
-  {
-    // assert is_open
-  }
-
   void init_single_send(detail::Data data)
   {
     m_sending = true;
+    TNTPP_LOG(
+        m_config.logger(), Trace, "initialing send operation: {{msg_count=1}}");
     boost::asio::async_write(
-        m_socket,
-        boost::asio::const_buffer(data.data(), data.size()),
+        m_stream.next_layer(),
+        data,
         boost::asio::bind_executor(m_strand,
                                    [this](error_code ec, std::size_t count)
                                    { on_data_sent(ec, count); }));
@@ -184,39 +182,47 @@ private:
     // MUST live long enough because it is stored in this class
     const std::vector<Data>& data = m_queue.swap();
     // push it to the socket and wait until all octets are written
+    TNTPP_LOG(m_config.logger(),
+              Trace,
+              "initialing send operation: {{msg_count={}}}",
+              data.size());
     boost::asio::async_write(
-        m_socket,
+        m_stream.next_layer(),
         data,
         boost::asio::bind_executor(m_strand,
                                    [this](error_code ec, std::size_t count)
                                    { on_data_sent(ec, count); }));
   }
 
-  void on_data_sent(error_code ec, std::size_t)
+  void on_data_sent(error_code ec, std::size_t count)
   {
     assert(m_strand.running_in_this_thread());
     m_sending = false;
-    // @todo log trace sent bytes
     if (ec) {
-      // @todo log error
-      m_socket.close();
+      TNTPP_LOG(m_config.logger(),
+                Error,
+                "send operation failed: {{error='{}', bytes={}}}",
+                ec.to_string(),
+                count);
+      m_stream.next_layer().close();
       m_queue.clear();
     }
+    TNTPP_LOG(m_config.logger(),
+              Trace,
+              "finished send operation: {{bytes={}}}",
+              count);
     // check if there are new requests available and send them
     if (m_queue.is_ready()) {
       init_queue_send();
     }
   }
 
-  // receive message
-  // async reconnect
-
   /**
    * local executor to synchronize all async operations if multi-threaded
    * runtime is used
    */
   Strand m_strand;
-  Socket m_socket;
+  Stream m_stream;
   Config m_config;
 
   bool m_sending {false};  ///< indicates if send operation is in progress

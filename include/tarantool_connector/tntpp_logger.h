@@ -84,8 +84,8 @@ public:
 
 // TODO: logger
 
-#ifndef TNTPP_LOG_MESSAGE
-#  define TNTPP_LOG_MESSAGE(logger, level, ...)                                \
+#ifndef TNTPP_LOG
+#  define TNTPP_LOG(logger, level, ...)                                \
     {                                                                          \
       auto l_level__ = LogLevel::level;                                        \
       if (logger && logger->max_log_level() >= l_level__) {                    \
