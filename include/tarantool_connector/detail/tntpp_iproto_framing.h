@@ -6,9 +6,13 @@
 #define TARANTOOL_CONNECTOR_TNTPP_IPROTO_FRAMING_H
 
 #include <array>
+#include <utility>
 
+#include <boost/asio/as_tuple.hpp>
 #include <boost/asio/experimental/co_composed.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/read.hpp>
+#include <boost/system/detail/errc.hpp>
 
 #include "tntpp_typedefs.h"
 
@@ -94,7 +98,7 @@ public:
   {
     return boost::asio::async_initiate<H, void(error_code, std::string)>(
         boost::asio::experimental::co_composed<void(error_code, std::string)>(
-            [this](auto state)
+            [this](auto state) -> void
             {
               // read the type - 1 octet
 
@@ -114,7 +118,14 @@ public:
               // check if 0xcf
 
               // read the body
-              co_return state.complete(error_code {}, "");
+              char ch;
+              auto [ec, count] = co_await m_next_layer.async_read_some(
+                  boost::asio::mutable_buffer(&ch, 1),
+                  boost::asio::as_tuple(boost::asio::deferred));
+              if (ec) {
+                co_return state.complete(ec, std::string {});
+              }
+              co_return state.complete(error_code {}, std::string {});
             }),
         handler);
   }

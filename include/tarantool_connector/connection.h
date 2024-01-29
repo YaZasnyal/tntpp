@@ -6,12 +6,13 @@
 #define TARANTOOL_CONNECTOR_CONNECTION_H
 
 #include <cassert>
-#include <optional>
-#include <string>
+#include <memory>
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/strand.hpp>
+#include <boost/asio/write.hpp>
+#include <boost/asio/bind_executor.hpp>
 
 #include "detail/tntpp_iproto_framing.h"
 #include "detail/tntpp_queue.h"
@@ -52,10 +53,7 @@ public:
   Connection& operator=(const Connection&) = delete;
   Connection& operator=(Connection&&) = default;
 
-  void stop()
-  {
-    /// @todo implement
-  }
+  void stop() { m_stream.next_layer().close(); }
 
   template<class H>
   auto connect(H&& handler)

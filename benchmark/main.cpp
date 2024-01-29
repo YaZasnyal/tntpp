@@ -2,6 +2,9 @@
 // Created by blade on 26.01.2024.
 //
 
+#include <boost/asio/deadline_timer.hpp>
+#include <boost/asio/use_future.hpp>
+
 #include <benchmark/benchmark.h>
 #include <tarantool_connector/tarantool_connector.hpp>
 #include <tarantool_connector/tntpp_cout_logger.h>
@@ -16,7 +19,7 @@ static void simple_loop(benchmark::State& s)
         ctx.run();
       });
 
-  tntpp::StdoutLogger logger(tntpp::LogLevel::Trace);
+  static tntpp::StdoutLogger logger(tntpp::LogLevel::Trace);
   boost::asio::co_spawn(
       ctx,
       [&]() -> boost::asio::awaitable<void>

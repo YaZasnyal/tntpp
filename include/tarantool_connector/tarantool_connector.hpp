@@ -1,16 +1,18 @@
 #pragma once
 
+#include <atomic>
 #include <cassert>
-#include <cstddef>
-#include <cstdint>
-#include <span>
-#include <string>
+#include <exception>
+#include <memory>
+#include <unordered_map>
 
-#include <boost/asio.hpp>
+#include <boost/asio/any_completion_handler.hpp>
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/co_spawn.hpp>
+#include <boost/asio/deferred.hpp>
+#include <boost/asio/detached.hpp>
 #include <boost/asio/experimental/co_composed.hpp>
-#include <fmt/core.h>
+#include <boost/asio/redirect_error.hpp>
 
 #include "connection.h"
 #include "detail/tntpp_operation.h"
@@ -37,7 +39,15 @@ class Connector
 public:
   Connector(const Connector&) = delete;
   Connector(Connector&&) = default;
-  ~Connector() = default;
+  ~Connector()
+  {
+    m_state->m_conn->get_strand().execute(
+        [state = m_state]()
+        {
+          state->s_ = Internal::State::Stopped;
+          state->m_conn->stop();
+        });
+  }
   Connector& operator=(const Connector&) = delete;
   Connector& operator=(Connector&&) = default;
 
@@ -62,7 +72,7 @@ public:
                 -> void
             {
               // int answer = co_await get_answer(boost::asio::deferred);
-              auto conn = std::make_shared<detail::Connection>(exec, cfg);
+              auto conn = std::make_shared<detail::Connection>(exec, std::move(cfg));
               error_code ec {};
               co_await conn->connect(
                   boost::asio::redirect_error(boost::asio::deferred, ec));
@@ -73,6 +83,12 @@ public:
               assert(conn != nullptr);
               // construct Connector and return it
               ConnectorSptr connector(new Connector(std::move(conn)));
+              boost::asio::co_spawn(
+                  connector->m_state->m_conn->get_strand(),
+                  [state = connector->m_state]() mutable
+                  -> boost::asio::awaitable<void>
+                  { co_await Connector::start(std::move(state)); },
+                  boost::asio::detached);
               co_return state.complete(error_code {}, std::move(connector));
             }),
         handler,
@@ -100,17 +116,17 @@ public:
     {
       // dispatch this function to the connection strand if we are not there
       // already
-      m_conn->get_strand().dispatch(
+      m_state->m_conn->get_strand().dispatch(
           [this, handler = std::move(handler), &request]()
           {
-            if (s_ != State::Connected) {
+            if (m_state->s_ != Internal::State::Connected) {
               handler(boost::system::errc::not_connected);
             }
 
-            m_conn->send_data(request.data);
+            m_state->m_conn->send_data(request.data);
             boost::asio::any_completion_handler<void(error_code)> any_handler =
                 handler;
-            m_requests.emplace({request.id, std::move(handler)});
+            m_state->m_requests.emplace({request.id, std::move(handler)});
           });
     };
 
@@ -119,28 +135,11 @@ public:
   }
 
   /**
-   * Stop the Connector
-   *
-   * This functions takes care of gracefully cancelling all operations and
-   * stopping the socket
-   *
-   * @tparam H
-   * @param handler
-   *
-   * @note this function MUST be called before destructor is called.
-   */
-  template<class H>
-  auto stop(H&& handler)
-  {
-    // @todo implement
-  }
-
-  /**
    * Generates new unique within this connection request id
    */
   detail::iproto::OperationId generate_id()
   {
-    return m_request_id.fetch_add(1, std::memory_order_relaxed);
+    return m_state->m_request_id.fetch_add(1, std::memory_order_relaxed);
   }
 
   // create watcher(queue_size)
@@ -151,46 +150,130 @@ public:
   //   receive_event()
 
 private:
+  class Internal
+  {
+  public:
+    LogConsumer* get_logger() { return m_conn->get_config().logger(); }
+
+    void reset()
+    {
+      if (s_ == State::Connected) {
+        s_ = State::Connecting;
+      }
+      // todo clear handlers (call them with an error)
+      m_conn->stop();
+    }
+
+    enum class State
+    {
+      Connecting,
+      Connected,
+      Stopped,
+    };
+    State s_ {State::Connected};
+
+    std::atomic<detail::iproto::OperationId> m_request_id {0};
+    std::unordered_map<detail::iproto::OperationId,
+                       boost::asio::any_completion_handler<void(error_code)>>
+        m_requests;
+    // watchers
+
+    // Destruction order matters. Connection must stay in the end.
+    // @todo async future for async_stop
+    detail::ConnectionSptr m_conn;
+  };
+  using InternalSptr = std::shared_ptr<Internal>;
+
   /**
    * @param conn - established connection
    *
    * Connector expects fully established connection
    */
   Connector(detail::ConnectionSptr conn)
-      : m_conn(std::move(conn))
-      , s_(State::Connected)
+      : m_state(new Internal {.m_conn = std::move(conn)})
   {
-    // @todo start receive operation
-    // read event
-    // if error and not stopped -> reconnect
-    // if error and stopped -> return
-    // decode header
-    // call completion handler
   }
 
-  // @todo start
-  //   save sptr to this for graceful shutdown
+  /**
+   * Receive loop
+   */
+  static boost::asio::awaitable<void> start(InternalSptr state)
+  {
+    /// @todo bind allocator
+    TNTPP_LOG(state->get_logger(), Debug, "[receive loop] started");
+    while (true) {
+      try {
+        if (state->s_ == Internal::State::Stopped) {
+          state->reset();
+          break;
+        }
+        if (state->s_ != Internal::State::Connected) {
+          // @todo implement backoff policy
+          TNTPP_LOG(
+              state->get_logger(), Debug, "[receive loop] trying to reconnect");
+          auto [ec] = co_await state->m_conn->connect(
+              boost::asio::as_tuple(boost::asio::use_awaitable));
+          if (ec) {
+            TNTPP_LOG(state->get_logger(),
+                      Debug,
+                      "[receive loop] failed to reconnect: {{error='{}'}}",
+                      ec.to_string());
+            continue;  // try again until stopped
+          }
+          TNTPP_LOG(state->get_logger(),
+                    Debug,
+                    "[receive loop] reconnected successfully");
+        }
+
+        auto [ec, message] = co_await state->m_conn->receive_message(
+            boost::asio::as_tuple(boost::asio::use_awaitable));
+        if (ec) {
+          TNTPP_LOG(state->get_logger(),
+                    Info,
+                    "[receive loop] read operation finished with an error; "
+                    "connection will be reset: {{error='{}'}}",
+                    ec.to_string());
+          state->reset();
+          continue;
+        }
+        // decode header
+        // extract handler
+        // try
+        //   call completion handle
+        // catch -> continue
+      } catch (const boost::system::system_error& err) {
+        if (err.code() == boost::system::errc::operation_canceled) {
+          TNTPP_LOG(state->get_logger(), Info, "stop requested");
+          state->reset();
+          break;
+        }
+        // all other errors MUST be handled by the error code above
+        TNTPP_LOG(
+            state->get_logger(),
+            Error,
+            "[receive loop] unhandled exception; resetting: {{error='{}'}}",
+            err.what());
+        state->reset();
+        continue;
+      } catch (const std::exception& err) {
+        // totally unexpected error (definitely a bug)
+        TNTPP_LOG(
+            state->get_logger(),
+            Fatal,
+            "[receive loop] unhandled exception; resetting: {{error='{}'}}",
+            err.what());
+        assert(false && "must not be here");
+        continue;
+      }
+    }
+
+    TNTPP_LOG(state->get_logger(), Info, "[receive loop] finished");
+  }
+
   // @todo stop
   //   post stop
 
-  enum class State
-  {
-    Connecting,
-    Connected,
-    Stopped,
-  };
-
-  State s_;
-
-  std::atomic<detail::iproto::OperationId> m_request_id {0};
-  std::unordered_map<detail::iproto::OperationId,
-                     boost::asio::any_completion_handler<void(error_code)>>
-      m_requests;
-  // watchers
-
-  // Destruction order matters. Connection must stay in the end.
-  // @todo async future for async_stop
-  detail::ConnectionSptr m_conn;
+  InternalSptr m_state;
 };
 
 class Box

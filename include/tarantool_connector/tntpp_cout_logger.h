@@ -73,7 +73,7 @@ public:
     auto out = fmt::memory_buffer();
     fmt::format_to(std::back_inserter(out),
                    "{:<15}:{:<3} [{:%F %T%z}] [{:<5}] ",
-                   strip_string(strip_filename(location.file_name())),
+                   strip_string(strip_filename(location.file_name()), 15),
                    location.column(),
                    fmt::localtime(std::time(nullptr)),
                    log_level_to_string(level));
