@@ -9,7 +9,11 @@ Checks: "*,\
   -llvm-header-guard,\
   -llvm-include-order,\
   -llvmlibc-*,\
-  -misc-non-private-member-variables-in-classes"
+  -misc-non-private-member-variables-in-classes, \
+  -cppcoreguidelines-avoid-capturing-lambda-coroutines, \
+  -*-identifier-length, \
+  -*-missing-std-forward, \
+  -*-use-trailing-return-type"
 WarningsAsErrors: ''
 CheckOptions:
   - key: 'bugprone-argument-comment.StrictMode'
@@ -47,7 +51,7 @@ CheckOptions:
   - key: 'readability-identifier-naming.AbstractClassCase'
     value: 'lower_case'
   - key: 'readability-identifier-naming.ClassCase'
-    value: 'lower_case'
+    value: 'CamelCase'
   - key: 'readability-identifier-naming.ClassConstantCase'
     value: 'lower_case'
   - key: 'readability-identifier-naming.ClassMemberCase'
@@ -69,9 +73,9 @@ CheckOptions:
   - key: 'readability-identifier-naming.ConstexprVariableCase'
     value: 'lower_case'
   - key: 'readability-identifier-naming.EnumCase'
-    value: 'lower_case'
+    value: 'CamelCase'
   - key: 'readability-identifier-naming.EnumConstantCase'
-    value: 'lower_case'
+    value: 'CamelCase'
   - key: 'readability-identifier-naming.FunctionCase'
     value: 'lower_case'
   - key: 'readability-identifier-naming.GlobalConstantCase'
@@ -137,9 +141,9 @@ CheckOptions:
   - key: 'readability-identifier-naming.TemplateTemplateParameterCase'
     value: 'CamelCase'
   - key: 'readability-identifier-naming.TypeAliasCase'
-    value: 'lower_case'
+    value: 'CamelCase'
   - key: 'readability-identifier-naming.TypedefCase'
-    value: 'lower_case'
+    value: 'CamelCase'
   - key: 'readability-identifier-naming.TypeTemplateParameterCase'
     value: 'CamelCase'
   - key: 'readability-identifier-naming.UnionCase'

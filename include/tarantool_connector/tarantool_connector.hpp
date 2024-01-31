@@ -44,7 +44,7 @@ public:
     m_state->m_conn->get_strand().execute(
         [state = m_state]()
         {
-          state->s_ = Internal::State::Stopped;
+          state->m_s = Internal::State::Stopped;
           state->m_conn->stop();
         });
   }
@@ -119,7 +119,7 @@ public:
       m_state->m_conn->get_strand().dispatch(
           [this, handler = std::move(handler), &request]()
           {
-            if (m_state->s_ != Internal::State::Connected) {
+            if (m_state->m_s != Internal::State::Connected) {
               handler(boost::system::errc::not_connected);
             }
 
@@ -146,7 +146,7 @@ public:
   //   get_event
   // class Watcher
   //   create_bounded(queue_size)
-  //   create_unbounmded(queue_size)
+  //   create_unbounded(queue_size)
   //   receive_event()
 
 private:
@@ -157,8 +157,8 @@ private:
 
     void reset()
     {
-      if (s_ == State::Connected) {
-        s_ = State::Connecting;
+      if (m_s == State::Connected) {
+        m_s = State::Connecting;
       }
       // todo clear handlers (call them with an error)
       m_conn->stop();
@@ -170,7 +170,7 @@ private:
       Connected,
       Stopped,
     };
-    State s_ {State::Connected};
+    State m_s {State::Connected};
 
     std::atomic<detail::iproto::OperationId> m_request_id {0};
     std::unordered_map<detail::iproto::OperationId,
@@ -203,11 +203,11 @@ private:
     TNTPP_LOG(state->get_logger(), Debug, "[receive loop] started");
     while (true) {
       try {
-        if (state->s_ == Internal::State::Stopped) {
+        if (state->m_s == Internal::State::Stopped) {
           state->reset();
           break;
         }
-        if (state->s_ != Internal::State::Connected) {
+        if (state->m_s != Internal::State::Connected) {
           // @todo implement backoff policy
           TNTPP_LOG(
               state->get_logger(), Debug, "[receive loop] trying to reconnect");

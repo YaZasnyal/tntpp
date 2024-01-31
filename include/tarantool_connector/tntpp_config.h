@@ -58,7 +58,7 @@ public:
   }
   [[nodiscard]] const std::optional<Credentials>& credentials() const noexcept
   {
-    m_credentials;
+    return m_credentials;
   }
 
   Config& logger(LogConsumer* logger)

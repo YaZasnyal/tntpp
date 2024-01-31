@@ -21,22 +21,16 @@ static void simple_loop(benchmark::State& s)
         ctx.run();
       });
 
-  static tntpp::StdoutLogger logger(tntpp::LogLevel::Trace);
+  static tntpp::StdoutLogger logger(tntpp::LogLevel::Error);
   boost::asio::co_spawn(
       ctx,
       [&]() -> boost::asio::awaitable<void>
       {
-        int i = 0;
-        boost::asio::deadline_timer t(ctx);
-        t.expires_at(boost::posix_time::neg_infin);
         for (auto _ : s) {
            auto [ec, conn] = co_await tntpp::Connector::connect(
               ctx.get_executor(),
-              tntpp::Config().host("localhost").port(3301).logger(&logger),
+              tntpp::Config().host("192.168.4.2").port(3301).logger(&logger),
               boost::asio::as_tuple(boost::asio::use_awaitable));
-
-          if (++i % 100 == 0)
-            co_await t.async_wait(boost::asio::use_awaitable);
         }
         co_return;
       },
