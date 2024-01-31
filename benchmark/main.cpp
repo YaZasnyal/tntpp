@@ -2,6 +2,8 @@
 // Created by blade on 26.01.2024.
 //
 
+#include <thread>
+
 #include <boost/asio/deadline_timer.hpp>
 #include <boost/asio/use_future.hpp>
 
