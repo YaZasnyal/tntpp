@@ -33,9 +33,7 @@ public:
   /**
    * Checks if there is data in the active queue
    */
-  bool is_ready() {
-    return !m_active.empty();
-  }
+  bool is_ready() { return !m_active.empty(); }
 
   const std::vector<T>& get_inactive() const { return m_inactive; }
 

@@ -1,5 +1,3 @@
-#pragma once
-
 #include <atomic>
 #include <cassert>
 #include <exception>
@@ -62,20 +60,16 @@ public:
    * @note all arguments must live until async operation is finished
    */
   template<class H>
-  static auto connect(boost::asio::any_io_executor exec,
-                      const Config& cfg,
-                      H&& handler)
+  static auto connect(boost::asio::any_io_executor exec, const Config& cfg, H&& handler)
   {
     return boost::asio::async_initiate<H, void(error_code, ConnectorSptr)>(
         boost::asio::experimental::co_composed<void(error_code, ConnectorSptr)>(
-            [](auto state, boost::asio::any_io_executor exec, Config cfg)
-                -> void
+            [](auto state, boost::asio::any_io_executor exec, Config cfg) -> void
             {
               // int answer = co_await get_answer(boost::asio::deferred);
               auto conn = std::make_shared<detail::Connection>(exec, std::move(cfg));
               error_code ec {};
-              co_await conn->connect(
-                  boost::asio::redirect_error(boost::asio::deferred, ec));
+              co_await conn->connect(boost::asio::redirect_error(boost::asio::deferred, ec));
               if (ec) {
                 co_return state.complete(ec, nullptr);
               }
@@ -85,8 +79,7 @@ public:
               ConnectorSptr connector(new Connector(std::move(conn)));
               boost::asio::co_spawn(
                   connector->m_state->m_conn->get_strand(),
-                  [state = connector->m_state]() mutable
-                  -> boost::asio::awaitable<void>
+                  [state = connector->m_state]() mutable -> boost::asio::awaitable<void>
                   { co_await Connector::start(std::move(state)); },
                   boost::asio::detached);
               co_return state.complete(error_code {}, std::move(connector));
@@ -124,14 +117,12 @@ public:
             }
 
             m_state->m_conn->send_data(request.data);
-            boost::asio::any_completion_handler<void(error_code)> any_handler =
-                handler;
+            boost::asio::any_completion_handler<void(error_code)> any_handler = handler;
             m_state->m_requests.emplace({request.id, std::move(handler)});
           });
     };
 
-    return boost::asio::async_initiate<H, void(error_code)>(
-        init, handler, std::ref(request));
+    return boost::asio::async_initiate<H, void(error_code)>(init, handler, std::ref(request));
   }
 
   /**
@@ -209,10 +200,9 @@ private:
         }
         if (state->m_s != Internal::State::Connected) {
           // @todo implement backoff policy
-          TNTPP_LOG(
-              state->get_logger(), Debug, "[receive loop] trying to reconnect");
-          auto [ec] = co_await state->m_conn->connect(
-              boost::asio::as_tuple(boost::asio::use_awaitable));
+          TNTPP_LOG(state->get_logger(), Debug, "[receive loop] trying to reconnect");
+          auto [ec] =
+              co_await state->m_conn->connect(boost::asio::as_tuple(boost::asio::use_awaitable));
           if (ec) {
             TNTPP_LOG(state->get_logger(),
                       Debug,
@@ -220,9 +210,7 @@ private:
                       ec.to_string());
             continue;  // try again until stopped
           }
-          TNTPP_LOG(state->get_logger(),
-                    Debug,
-                    "[receive loop] reconnected successfully");
+          TNTPP_LOG(state->get_logger(), Debug, "[receive loop] reconnected successfully");
         }
 
         auto [ec, message] = co_await state->m_conn->receive_message(
@@ -248,20 +236,18 @@ private:
           break;
         }
         // all other errors MUST be handled by the error code above
-        TNTPP_LOG(
-            state->get_logger(),
-            Error,
-            "[receive loop] unhandled exception; resetting: {{error='{}'}}",
-            err.what());
+        TNTPP_LOG(state->get_logger(),
+                  Error,
+                  "[receive loop] unhandled exception; resetting: {{error='{}'}}",
+                  err.what());
         state->reset();
         continue;
       } catch (const std::exception& err) {
         // totally unexpected error (definitely a bug)
-        TNTPP_LOG(
-            state->get_logger(),
-            Fatal,
-            "[receive loop] unhandled exception; resetting: {{error='{}'}}",
-            err.what());
+        TNTPP_LOG(state->get_logger(),
+                  Fatal,
+                  "[receive loop] unhandled exception; resetting: {{error='{}'}}",
+                  err.what());
         assert(false && "must not be here");
         continue;
       }

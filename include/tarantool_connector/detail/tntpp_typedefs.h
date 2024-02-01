@@ -8,15 +8,15 @@
 #include <cstddef>
 #include <span>
 
-#include <boost/system/error_code.hpp>
 #include <boost/asio/buffer.hpp>
+#include <boost/system/error_code.hpp>
 
 namespace tntpp
 {
 
 using error_code = boost::system::error_code;
 
-} // namespace tntpp
+}  // namespace tntpp
 
 namespace tntpp::detail
 {

@@ -9,6 +9,7 @@
 #include <iostream>
 #include <ranges>
 #include <string_view>
+
 #include <fmt/chrono.h>
 
 #include "tntpp_logger.h"
@@ -45,8 +46,7 @@ inline constexpr std::string_view strip_filename(const char* filename)
   return filename_sv.substr(sep);
 }
 
-inline constexpr std::string_view strip_string(std::string_view s,
-                                               std::size_t len = 25)
+inline constexpr std::string_view strip_string(std::string_view s, std::size_t len = 25)
 {
   if (s.length() <= len) {
     return s;
@@ -77,8 +77,8 @@ public:
                    location.column(),
                    fmt::localtime(std::time(nullptr)),
                    log_level_to_string(level));
-    std::cout << std::string_view(out.data(), out.size())
-              << std::string_view(message, message_len) << std::endl;
+    std::cout << std::string_view(out.data(), out.size()) << std::string_view(message, message_len)
+              << std::endl;
   }
 
 private:

@@ -49,18 +49,14 @@ auto read_tarantool_hello(Stream& stream, H&& handler)
             }
 
             // @todo log message
-            if (buffer[buffer.size() / 2 - 1] != '\n'
-                || buffer[buffer.size() - 1] != '\n')
-            {
+            if (buffer[buffer.size() / 2 - 1] != '\n' || buffer[buffer.size() - 1] != '\n') {
               co_return state.complete(
-                  error_code(boost::system::errc::bad_message,
-                             boost::system::system_category()),
+                  error_code(boost::system::errc::bad_message, boost::system::system_category()),
                   "");
             }
 
             /// @todo fix pointer arithmetic warning
-            std::string salt(buffer.data() + (buffer.size() / 2),
-                             buffer.size() / 2);
+            std::string salt(buffer.data() + (buffer.size() / 2), buffer.size() / 2);
             co_return state.complete(error_code {}, std::move(salt));
           }),
       handler,
@@ -155,19 +151,13 @@ public:
    * @brief lowest_layer returns the lowest layer in the stack of stream
    * layers.
    */
-  const lowest_layer_type& lowest_layer() const
-  {
-    return m_next_layer.lowest_layer();
-  }
+  const lowest_layer_type& lowest_layer() const { return m_next_layer.lowest_layer(); }
 
   /**
    * @brief get_executor obtains the executor object that the stream uses
    * to run asynchronous operations
    */
-  executor_type get_executor() const noexcept
-  {
-    return m_next_layer.get_executor();
-  }
+  executor_type get_executor() const noexcept { return m_next_layer.get_executor(); }
 
 private:
   Stream m_next_layer;

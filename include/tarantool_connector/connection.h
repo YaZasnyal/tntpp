@@ -9,10 +9,10 @@
 #include <memory>
 
 #include <boost/asio/any_io_executor.hpp>
+#include <boost/asio/bind_executor.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/write.hpp>
-#include <boost/asio/bind_executor.hpp>
 
 #include "detail/tntpp_iproto_framing.h"
 #include "detail/tntpp_queue.h"
@@ -74,12 +74,11 @@ public:
               auto addresses = co_await resolver.async_resolve(
                   m_config.host(), "", redirect_error(deferred, ec));
               if (ec) {
-                TNTPP_LOG(
-                    m_config.logger(),
-                    Info,
-                    "unable to resolve address: {{host='{}', error='{}'}}",
-                    m_config.host(),
-                    ec.to_string());
+                TNTPP_LOG(m_config.logger(),
+                          Info,
+                          "unable to resolve address: {{host='{}', error='{}'}}",
+                          m_config.host(),
+                          ec.to_string());
                 co_return state.complete(ec);
               }
 
@@ -87,14 +86,10 @@ public:
               for (const auto& address : addresses) {
                 m_stream.clear();
                 socket.close();
-                tcp::endpoint endpoint(address.endpoint().address(),
-                                       m_config.port());
-                TNTPP_LOG(m_config.logger(),
-                          Debug,
-                          "trying to connect: {{endpoint={}}}",
-                          endpoint);
-                co_await socket.async_connect(endpoint,
-                                              redirect_error(deferred, ec));
+                tcp::endpoint endpoint(address.endpoint().address(), m_config.port());
+                TNTPP_LOG(
+                    m_config.logger(), Debug, "trying to connect: {{endpoint={}}}", endpoint);
+                co_await socket.async_connect(endpoint, redirect_error(deferred, ec));
                 if (ec) {
                   TNTPP_LOG(m_config.logger(),
                             Info,
@@ -105,16 +100,14 @@ public:
                   continue;
                 }
                 socket.set_option(tcp::no_delay(m_config.nodelay()));
-                TNTPP_LOG(
-                    m_config.logger(),
-                    Info,
-                    "connection established; {{endpoint='{}', no_delay={}}}",
-                    socket.remote_endpoint(),
-                    m_config.nodelay());
+                TNTPP_LOG(m_config.logger(),
+                          Info,
+                          "connection established; {{endpoint='{}', no_delay={}}}",
+                          socket.remote_endpoint(),
+                          m_config.nodelay());
 
                 // @todo add timeout
-                auto salt = co_await read_tarantool_hello(
-                    socket, redirect_error(deferred, ec));
+                auto salt = co_await read_tarantool_hello(socket, redirect_error(deferred, ec));
                 if (ec) {
                   TNTPP_LOG(m_config.logger(),
                             Info,
@@ -132,9 +125,8 @@ public:
                         "unable to establish connection to any of resolved "
                         "endpoints: {{host={}}}",
                         m_config.host());
-              co_return state.complete(
-                  error_code(boost::system::errc::not_connected,
-                             boost::system::system_category()));
+              co_return state.complete(error_code(boost::system::errc::not_connected,
+                                                  boost::system::system_category()));
             }),
         handler);
   }
@@ -164,14 +156,12 @@ private:
   void init_single_send(detail::Data data)
   {
     m_sending = true;
-    TNTPP_LOG(
-        m_config.logger(), Trace, "initialing send operation: {{msg_count=1}}");
+    TNTPP_LOG(m_config.logger(), Trace, "initialing send operation: {{msg_count=1}}");
     boost::asio::async_write(
         m_stream.next_layer(),
         data,
-        boost::asio::bind_executor(m_strand,
-                                   [this](error_code ec, std::size_t count)
-                                   { on_data_sent(ec, count); }));
+        boost::asio::bind_executor(
+            m_strand, [this](error_code ec, std::size_t count) { on_data_sent(ec, count); }));
   }
 
   void init_queue_send()
@@ -180,16 +170,13 @@ private:
     // MUST live long enough because it is stored in this class
     const std::vector<Data>& data = m_queue.swap();
     // push it to the socket and wait until all octets are written
-    TNTPP_LOG(m_config.logger(),
-              Trace,
-              "initialing send operation: {{msg_count={}}}",
-              data.size());
+    TNTPP_LOG(
+        m_config.logger(), Trace, "initialing send operation: {{msg_count={}}}", data.size());
     boost::asio::async_write(
         m_stream.next_layer(),
         data,
-        boost::asio::bind_executor(m_strand,
-                                   [this](error_code ec, std::size_t count)
-                                   { on_data_sent(ec, count); }));
+        boost::asio::bind_executor(
+            m_strand, [this](error_code ec, std::size_t count) { on_data_sent(ec, count); }));
   }
 
   void on_data_sent(error_code ec, std::size_t count)
@@ -205,10 +192,7 @@ private:
       m_stream.next_layer().close();
       m_queue.clear();
     }
-    TNTPP_LOG(m_config.logger(),
-              Trace,
-              "finished send operation: {{bytes={}}}",
-              count);
+    TNTPP_LOG(m_config.logger(), Trace, "finished send operation: {{bytes={}}}", count);
     // check if there are new requests available and send them
     if (m_queue.is_ready()) {
       init_queue_send();

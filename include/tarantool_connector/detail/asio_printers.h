@@ -9,14 +9,11 @@
 #include <fmt/core.h>
 
 template<>
-struct fmt::formatter<boost::asio::ip::tcp::endpoint>
-    : fmt::formatter<string_view>
+struct fmt::formatter<boost::asio::ip::tcp::endpoint> : fmt::formatter<string_view>
 {
-  auto format(const boost::asio::ip::tcp::endpoint& p,
-              format_context& ctx) const
+  auto format(const boost::asio::ip::tcp::endpoint& p, format_context& ctx) const
   {
-    return fmt::format_to(
-        ctx.out(), "{}:{}", p.address().to_string(), p.port());
+    return fmt::format_to(ctx.out(), "{}:{}", p.address().to_string(), p.port());
   }
 };
 

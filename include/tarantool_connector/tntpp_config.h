@@ -91,10 +91,7 @@ public:
    * exhausted but that the queue will shrink to this value after the operation
    * completes to reduce memory allocated when burst occurs.
    */
-  [[nodiscard]] std::size_t send_queue_capacity() const noexcept
-  {
-    return m_send_queue_capacity;
-  }
+  [[nodiscard]] std::size_t send_queue_capacity() const noexcept { return m_send_queue_capacity; }
 
 private:
   std::string m_host {"127.0.0.1"};
