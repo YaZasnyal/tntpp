@@ -7,25 +7,24 @@ include(../cmake/folders.cmake)
 
 # ---- Dependencies ----
 
-if(PROJECT_IS_TOP_LEVEL)
-  find_package(tarantool_connector REQUIRED)
-  enable_testing()
-endif()
+if (PROJECT_IS_TOP_LEVEL)
+    find_package(tarantool_connector REQUIRED)
+    enable_testing()
+endif ()
 
-find_package(Catch2 REQUIRED)
-include(Catch)
+find_package(GTest REQUIRED)
 
 # ---- Tests ----
 
-add_executable(tarantool_connector_test source/tarantool_connector_test.cpp)
-target_link_libraries(
-    tarantool_connector_test PRIVATE
-    tarantool_connector::tarantool_connector
-    Catch2::Catch2WithMain
+add_executable(tarantool_connector_test
+        source/tarantool_connector_test.cpp
+        source/mutable_buffer_test.cpp
 )
-target_compile_features(tarantool_connector_test PRIVATE cxx_std_14)
-
-catch_discover_tests(tarantool_connector_test)
+target_link_libraries(tarantool_connector_test PRIVATE
+        tarantool_connector::tarantool_connector
+        GTest::gtest_main
+)
+target_compile_features(tarantool_connector_test PRIVATE cxx_std_20)
 
 # ---- End-of-file commands ----
 

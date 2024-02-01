@@ -14,6 +14,8 @@ namespace tntpp::detail::iproto
 /// https://www.tarantool.io/en/doc/latest/dev_guide/internals/iproto
 
 using OperationId = std::uint32_t;
+/// IProto message cannot be more that uint32::max() bytes long according to spec
+using SizeType = std::uint32_t;
 
 enum class OperationType
 {

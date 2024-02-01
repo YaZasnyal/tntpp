@@ -14,6 +14,8 @@
 #include <boost/asio/read.hpp>
 #include <boost/system/detail/errc.hpp>
 
+#include "iproto_typedefs.h"
+#include "tntpp_mutable_buffer.h"
 #include "tntpp_typedefs.h"
 
 namespace tntpp::detail
@@ -80,8 +82,9 @@ public:
   /// The type of the executor associated with the object.
   using executor_type = typename lowest_layer_type::executor_type;
 
-  Framing(Stream s)
+  Framing(Stream s, std::size_t default_size)
       : m_next_layer(std::move(s))
+      , m_buffer(default_size)
   {
   }
   Framing(const Self&) = delete;
@@ -96,7 +99,37 @@ public:
         boost::asio::experimental::co_composed<void(error_code, std::string)>(
             [this](auto state) -> void
             {
-              // read the type - 1 octet
+              std::byte msgpack_length_type {0};
+              auto [ec, count] = co_await m_next_layer.async_read_some(
+                  boost::asio::mutable_buffer(&msgpack_length_type, sizeof(msgpack_length_type)),
+                  boost::asio::as_tuple(boost::asio::deferred));
+              if (ec) {
+                // log error
+                co_return state.complete(ec, std::string {});
+              }
+              iproto::SizeType mesage_length = 0;
+
+              if ((msgpack_length_type & std::byte {0b1000000}) == std::byte {0}) {
+                // 7-bit positive number
+                mesage_length = std::to_integer<iproto::SizeType>(msgpack_length_type
+                                                                  & std::byte {0b01111111});
+              } else if ((msgpack_length_type & std::byte {0b1110000}) == std::byte {0b1110000}) {
+                // @todo error negative length (5-bit negative)
+                // return ec
+              } else {
+                unsigned read_octets = 0;
+                switch (std::to_integer<std::int8_t>(msgpack_length_type)) {
+                  case 0xcc:
+                    // read uint8_t
+                    break;
+                  case 0xcd:
+                    // uint16_t
+                    break;
+                  case 0xce:
+                    // uint32_t
+                    break;
+                }
+              }
 
               // read the rest of the length
 
@@ -114,10 +147,14 @@ public:
               // check if 0xcf
 
               // read the body
-              char ch;
-              auto [ec, count] = co_await m_next_layer.async_read_some(
-                  boost::asio::mutable_buffer(&ch, 1),
-                  boost::asio::as_tuple(boost::asio::deferred));
+              m_buffer.prepare(mesage_length);
+              auto read_bytes = co_await boost::asio::async_read(
+                  m_next_layer,
+                  m_buffer.get_receive_buffer(),
+                  boost::asio::redirect_error(boost::asio::deferred, ec),
+                  boost::asio::transfer_at_least(mesage_length));
+              m_buffer.advance_writer(read_bytes);
+
               if (ec) {
                 co_return state.complete(ec, std::string {});
               }
@@ -160,7 +197,10 @@ public:
   executor_type get_executor() const noexcept { return m_next_layer.get_executor(); }
 
 private:
+  iproto::SizeType read_length() {}
+
   Stream m_next_layer;
+  MutableBuffer m_buffer;
 };
 
 }  // namespace tntpp::detail

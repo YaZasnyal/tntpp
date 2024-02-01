@@ -91,7 +91,17 @@ public:
    * exhausted but that the queue will shrink to this value after the operation
    * completes to reduce memory allocated when burst occurs.
    */
+  void send_queue_capacity(std::size_t size) noexcept { m_send_queue_capacity = size; }
   [[nodiscard]] std::size_t send_queue_capacity() const noexcept { return m_send_queue_capacity; }
+
+  /**
+   * The size of the receive buffer
+   *
+   * It is recommended to be big enough to store multiple messages at the same time to reduce the
+   * number of memory allocations
+   */
+  void receive_buffer_size(std::size_t size) noexcept { m_receive_buffer_size = size; }
+  [[nodiscard]] std::size_t receive_buffer_size() const noexcept { return m_receive_buffer_size; }
 
 private:
   std::string m_host {"127.0.0.1"};
@@ -101,6 +111,7 @@ private:
 
   bool m_nodelay {false};
   std::size_t m_send_queue_capacity {32};
+  std::size_t m_receive_buffer_size {16384};
 };
 
 }  // namespace tntpp

@@ -42,7 +42,7 @@ public:
 
   Connection(boost::asio::any_io_executor exec, Config cfg)
       : m_strand(boost::asio::make_strand(exec))
-      , m_stream(Socket(m_strand))
+      , m_stream(Socket(m_strand), cfg.receive_buffer_size())
       , m_config(std::move(cfg))
       , m_queue(cfg.send_queue_capacity())
   {
