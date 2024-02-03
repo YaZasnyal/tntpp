@@ -78,7 +78,7 @@ public:
                           Info,
                           "unable to resolve address: {{host='{}', error='{}'}}",
                           m_config.host(),
-                          ec.to_string());
+                          ec.message());
                 co_return state.complete(ec);
               }
 
@@ -97,7 +97,7 @@ public:
                             "unable to establish connection: {{endpoint='{}', "
                             "error='{}'}}",
                             endpoint,
-                            ec.to_string());
+                            ec.message());
                   continue;
                 }
                 socket.set_option(tcp::no_delay(m_config.nodelay()));
@@ -113,7 +113,7 @@ public:
                   TNTPP_LOG(m_config.logger(),
                             Info,
                             "unable to read hello message: {{error='{}'}}",
-                            ec.to_string());
+                            ec.message());
                   continue;
                 }
                 // @todo add auth
@@ -189,7 +189,7 @@ private:
       TNTPP_LOG(m_config.logger(),
                 Error,
                 "send operation failed: {{error='{}', bytes={}}}",
-                ec.to_string(),
+                ec.message(),
                 count);
       m_stream.next_layer().close();
       m_queue.clear();

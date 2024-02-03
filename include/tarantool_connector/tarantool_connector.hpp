@@ -133,12 +133,14 @@ public:
     return m_state->m_request_id.fetch_add(1, std::memory_order_relaxed);
   }
 
-  // create watcher(queue_size)
-  //   get_event
-  // class Watcher
-  //   create_bounded(queue_size)
-  //   create_unbounded(queue_size)
-  //   receive_event()
+  template<class H>
+  auto ping(H&& handler)
+  {
+    return boost::asio::async_initiate<H, void(error_code)>(
+        boost::asio::experimental::co_composed<void(error_code)>(
+            [this](auto state) -> void { co_return state.complete(error_code {}); }),
+        handler);
+  }
 
 private:
   class Internal
@@ -207,9 +209,10 @@ private:
             TNTPP_LOG(state->get_logger(),
                       Debug,
                       "[receive loop] failed to reconnect: {{error='{}'}}",
-                      ec.to_string());
+                      ec.message());
             continue;  // try again until stopped
           }
+          state->m_s = Internal::State::Connected;
           TNTPP_LOG(state->get_logger(), Debug, "[receive loop] reconnected successfully");
         }
 
@@ -220,15 +223,29 @@ private:
                     Info,
                     "[receive loop] read operation finished with an error; "
                     "connection will be reset: {{error='{}'}}",
-                    ec.to_string());
+                    ec.message());
           state->reset();
           continue;
         }
-        // decode header
-        // extract handler
-        // try
-        //   call completion handle
-        // catch -> continue
+
+        auto it = state->m_requests.extract(message.header().sync);
+        if (!it) {
+          TNTPP_LOG(state->get_logger(),
+                    Debug,
+                    "[receive loop] no completion handle found: {{sync={}}}",
+                    message.header().sync);
+          continue;
+        }
+
+        try {
+          // todo push the data
+          it.mapped()(error_code {});
+        } catch (std::exception& e) {
+          TNTPP_LOG(state->get_logger(),
+                    Warn,
+                    "[receive loop] unhandled exception in completion handler: {{error='{}'}}",
+                    e.what());
+        }
       } catch (const boost::system::system_error& err) {
         if (err.code() == boost::system::errc::operation_canceled) {
           TNTPP_LOG(state->get_logger(), Info, "stop requested");
@@ -256,44 +273,7 @@ private:
     TNTPP_LOG(state->get_logger(), Info, "[receive loop] finished");
   }
 
-  // @todo stop
-  //   post stop
-
   InternalSptr m_state;
-};
-
-class Box
-{
-public:
-  Box(Connector& conn)
-      : m_conn(conn)
-  {
-  }
-  Box(const Box&) = delete;
-  Box(Box&&) = delete;
-  Box& operator=(const Box&) = delete;
-  Box& operator=(Box&&) = delete;
-  ~Box() = default;
-
-  // get
-  // insert
-  // streams
-  //   insert
-  //   commit
-  //   rollback
-  // call
-  // sql
-  // eval
-
-  /**
-   * Allows to get the underlying connection. May be useful to create another
-   * instances of Box.
-   * @return
-   */
-  Connector& get_connector() const { return m_conn; }
-
-private:
-  Connector& m_conn;
 };
 
 }  // namespace tntpp

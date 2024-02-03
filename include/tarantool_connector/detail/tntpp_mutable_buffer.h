@@ -75,9 +75,7 @@ public:
     assert(m_write_pointer <= m_size);
   }
 
-  bool is_empty() {
-    return  m_write_pointer == 0;
-  }
+  bool is_empty() { return m_write_pointer == 0; }
 
 private:
   std::size_t m_write_pointer {0};
@@ -112,6 +110,18 @@ public:
 
   const void* data() const noexcept { return m_data; }
   std::size_t size() const noexcept { return m_size; };
+
+  FrozenBuffer slice(std::size_t start,
+                     std::size_t length = std::numeric_limits<std::size_t>::max())
+  {
+    assert(start < m_size);
+    if (length == std::numeric_limits<std::size_t>::max()) {
+      length = m_size - start;
+    }
+    return {static_cast<const char*>(m_data) + start,  // NOLINT(*-pro-bounds-pointer-arithmetic)
+            length,
+            m_buf};
+  }
 
 private:
   const void* m_data {nullptr};

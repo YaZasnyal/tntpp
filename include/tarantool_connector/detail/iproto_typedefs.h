@@ -3,13 +3,13 @@
 //
 
 #ifndef TARANTOOL_CONNECTOR_IPROTO_TYPEDEFS_H
-#  define TARANTOOL_CONNECTOR_IPROTO_TYPEDEFS_H
+#define TARANTOOL_CONNECTOR_IPROTO_TYPEDEFS_H
 
-#  include <cstdint>
+#include <cstdint>
 
-#  include <msgpack.hpp>
+#include <msgpack.hpp>
 
-#  include "tntpp_defines.h"
+#include "tntpp_defines.h"
 
 namespace tntpp::detail::iproto
 {
@@ -137,9 +137,9 @@ std::optional<FieldType> int_to_field_type(MpUint type)
 class MessageHeader
 {
 public:
-  RequestType request_type;
-  MpUint sync;
-  MpUint schema_version;
+  RequestType request_type {RequestType::Unknown};
+  MpUint sync {0};
+  MpUint schema_version {0};
   std::optional<MpUint> stream_id {std::nullopt};
 };
 
