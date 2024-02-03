@@ -12,6 +12,7 @@
 #include <fmt/format.h>
 
 #include "detail/asio_printers.h"
+#include "detail/tntpp_defines.h"
 
 namespace tntpp
 {
@@ -48,12 +49,7 @@ static constexpr const char* log_level_to_string(LogLevel level)
       return "TRACE";
       break;
   }
-
-#if defined(_MSC_VER) && !defined(__clang__)  // MSVC
-  __assume(false);
-#else  // GCC, Clang
-  __builtin_unreachable();
-#endif
+  TNTPP_UNREACHABLE;
 }
 
 class LogConsumer

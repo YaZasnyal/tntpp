@@ -47,10 +47,12 @@ target_compile_features(tarantool_connector_tarantool_connector INTERFACE cxx_st
 
 find_package(Boost REQUIRED)
 find_package(fmt REQUIRED)
+find_package(msgpack REQUIRED)
 target_link_libraries(tarantool_connector_tarantool_connector
         INTERFACE
         Boost::headers
         fmt::fmt
+        msgpack-cxx
 )
 
 add_subdirectory(benchmark)

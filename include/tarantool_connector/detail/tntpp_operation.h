@@ -15,7 +15,7 @@ class Operation
 {
 public:
   iproto::OperationId id;
-  iproto::OperationType type;
+  iproto::RequestType type;
   Data data;
 };
 

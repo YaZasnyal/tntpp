@@ -105,24 +105,39 @@ public:
               auto [ec, length] =
                   co_await read_message_length(boost::asio::as_tuple(boost::asio::deferred));
               if (ec) {
-                // log error
+                // todo log error
                 co_return state.complete(ec, std::string {});
               }
 
-              auto msg_body = co_await transfer_exactly(
+              FrozenBuffer msg_body = co_await transfer_exactly(
                   length, boost::asio::redirect_error(boost::asio::deferred, ec));
               if (ec) {
-                // log error
+                // todo log error
                 co_return state.complete(ec, std::string {});
               }
 
-              // decode header from the body
-              // return the message
-
-              if (ec) {
-                co_return state.complete(ec, std::string {});
+              try {
+                std::size_t offset = 0;
+                msgpack::unpacker unpacker;
+                auto object = msgpack::unpack(
+                    static_cast<const char*>(msg_body.data()), msg_body.size(), offset);
+                iproto::MessageHeader header = object->convert();
+                // todo return the message
+              } catch (const std::bad_cast&) {
+                // todo make custom error type
+                co_return state.complete(error_code(boost::system::errc::illegal_byte_sequence,
+                                                    boost::system::system_category()),
+                                         std::string {});
+              } catch (const std::exception&) {
+                // todo log error
+                co_return state.complete(error_code(boost::system::errc::state_not_recoverable,
+                                                    boost::system::system_category()),
+                                         std::string {});
               }
-              co_return state.complete(error_code {}, std::string {});
+
+              co_return state.complete(error_code(boost::system::errc::state_not_recoverable,
+                                                  boost::system::system_category()),
+                                       std::string {});
             }),
         handler);
   }
@@ -196,48 +211,48 @@ private:
             [this](auto state) -> void
             {
               auto buf = co_await transfer_exactly(1, boost::asio::deferred);
-              uint8_t type = *static_cast<uint8_t*>(buf.data());
+              uint8_t type = *static_cast<const uint8_t*>(buf.data());
               std::int64_t result = 0;
               if ((type & 0b10000000) == 0) {
                 // 7-bit positive number
                 co_return state.complete(error_code {}, type & 0b01111111);
-              } else if (type == 0xcc) {  // 8 bit unsigned big endian
+              } else if (type == 0xcc) {  // 8-bit unsigned big endian
                 buf = co_await transfer_exactly(1, boost::asio::deferred);
-                co_return state.complete(error_code {}, *static_cast<uint8_t*>(buf.data()));
-              } else if (type == 0xcc) {  // 16 bit unsigned big endian
+                co_return state.complete(error_code {}, *static_cast<const uint8_t*>(buf.data()));
+              } else if (type == 0xcc) {  // 16-bit unsigned big endian
                 buf = co_await transfer_exactly(2, boost::asio::deferred);
                 co_return state.complete(
                     error_code {},
-                    boost::endian::big_to_native(*static_cast<uint16_t*>(buf.data())));
-              } else if (type == 0xce) {  // 32 bit unsigned big endian
+                    boost::endian::big_to_native(*static_cast<const uint16_t*>(buf.data())));
+              } else if (type == 0xce) {  // 32-bit unsigned big endian
                 buf = co_await transfer_exactly(4, boost::asio::deferred);
                 co_return state.complete(
                     error_code {},
-                    boost::endian::big_to_native(*static_cast<uint32_t*>(buf.data())));
-              } else if (type == 0xcf) {  // 64 bit unsigned big endian
+                    boost::endian::big_to_native(*static_cast<const uint32_t*>(buf.data())));
+              } else if (type == 0xcf) {  // 64-bit unsigned big endian
                 buf = co_await transfer_exactly(8, boost::asio::deferred);
                 co_return state.complete(
                     error_code {},
-                    boost::endian::big_to_native(*static_cast<uint64_t*>(buf.data())));
+                    boost::endian::big_to_native(*static_cast<const uint64_t*>(buf.data())));
               } else if ((type & 0b11100000) == 0b11100000) {
                 result = -1;
-              } else if (type == 0xd0) {  // 8 bit signed big endian
+              } else if (type == 0xd0) {  // 8-bit signed big endian
                 buf = co_await transfer_exactly(1, boost::asio::deferred);
-                result = *static_cast<int8_t*>(buf.data());
-              } else if (type == 0xd1) {  // 16 bit signed big endian
+                result = *static_cast<const int8_t*>(buf.data());
+              } else if (type == 0xd1) {  // 16-bit signed big endian
                 buf = co_await transfer_exactly(2, boost::asio::deferred);
-                result = boost::endian::big_to_native(*static_cast<int16_t*>(buf.data()));
-              } else if (type == 0xd2) {  // 32 bit signed big endian
+                result = boost::endian::big_to_native(*static_cast<const int16_t*>(buf.data()));
+              } else if (type == 0xd2) {  // 32-bit signed big endian
                 buf = co_await transfer_exactly(4, boost::asio::deferred);
-                result = boost::endian::big_to_native(*static_cast<int32_t*>(buf.data()));
-              } else if (type == 0xd3) {  // 64 bit signed big endian
+                result = boost::endian::big_to_native(*static_cast<const int32_t*>(buf.data()));
+              } else if (type == 0xd3) {  // 64-bit signed big endian
                 buf = co_await transfer_exactly(8, boost::asio::deferred);
-                result = boost::endian::big_to_native(*static_cast<int64_t*>(buf.data()));
+                result = boost::endian::big_to_native(*static_cast<const int64_t*>(buf.data()));
               }
 
               if (result < 0 || result > std::numeric_limits<iproto::SizeType>::max()) {
                 // @todo log error negative length (5-bit negative)
-                co_return state.complete(error_code(boost::system::errc::protocol_error,
+                co_return state.complete(error_code(boost::system::errc::message_size,
                                                     boost::system::system_category()),
                                          0);
               }
