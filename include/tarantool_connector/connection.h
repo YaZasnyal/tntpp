@@ -36,7 +36,7 @@ class Connection
 public:
   using Strand = boost::asio::strand<boost::asio::any_io_executor>;
   using Socket = boost::asio::ip::tcp::socket;
-  using Stream = Framing<Socket>;
+  using Stream = IprotoFraming<Socket>;
 
   using Executor = Strand;
 
@@ -83,6 +83,7 @@ public:
               }
 
               // try all available addresses returned by resolver
+              // @todo extract to separate function
               for (const auto& address : addresses) {
                 m_stream.clear();
                 socket.close();
@@ -117,6 +118,7 @@ public:
                 }
                 // @todo add auth
 
+                m_stream.clear(); // clear old data after reconnect
                 co_return state.complete(error_code {});
               }
 

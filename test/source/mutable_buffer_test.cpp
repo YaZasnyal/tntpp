@@ -52,7 +52,3 @@ TEST(tntpp_mutable_buffer, auto_prepare)
   recv_buf = mbuf.get_receive_buffer();
   GTEST_ASSERT_GT(recv_buf.size(), 0);
 }
-
-//
-
-#pragma clang diagnostic pop

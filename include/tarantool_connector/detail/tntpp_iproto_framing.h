@@ -12,6 +12,7 @@
 #include <boost/asio/experimental/co_composed.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/read.hpp>
+#include <boost/endian.hpp>
 #include <boost/system/detail/errc.hpp>
 
 #include "iproto_typedefs.h"
@@ -66,14 +67,16 @@ auto read_tarantool_hello(Stream& stream, H&& handler)
 }
 
 /**
- * Framing class allows to operate with messages instead of octets when
- * m_sending data over the wire
+ * IprotoFraming class allows to operate with messages instead of octets when
+ * reading data over the wire
+ *
+ * @tparam Stream ASIO async_read_stream (usually a TCP socket)
  */
 template<class Stream>
-class Framing
+class IprotoFraming
 {
 public:
-  using Self = Framing<Stream>;
+  using Self = IprotoFraming<Stream>;
 
   /// The type of the next layer.
   using next_layer_type = std::remove_reference_t<Stream>;
@@ -82,13 +85,13 @@ public:
   /// The type of the executor associated with the object.
   using executor_type = typename lowest_layer_type::executor_type;
 
-  Framing(Stream s, std::size_t default_size)
+  IprotoFraming(Stream s, std::size_t default_size)
       : m_next_layer(std::move(s))
       , m_buffer(default_size)
   {
   }
-  Framing(const Self&) = delete;
-  Framing(Self&&) = default;
+  IprotoFraming(const Self&) = delete;
+  IprotoFraming(Self&&) = default;
   Self& operator=(const Self&) = delete;
   Self& operator=(Self&&) = default;
 
@@ -99,61 +102,22 @@ public:
         boost::asio::experimental::co_composed<void(error_code, std::string)>(
             [this](auto state) -> void
             {
-              std::byte msgpack_length_type {0};
-              auto [ec, count] = co_await m_next_layer.async_read_some(
-                  boost::asio::mutable_buffer(&msgpack_length_type, sizeof(msgpack_length_type)),
-                  boost::asio::as_tuple(boost::asio::deferred));
+              auto [ec, length] =
+                  co_await read_message_length(boost::asio::as_tuple(boost::asio::deferred));
               if (ec) {
                 // log error
                 co_return state.complete(ec, std::string {});
               }
-              iproto::SizeType mesage_length = 0;
 
-              if ((msgpack_length_type & std::byte {0b1000000}) == std::byte {0}) {
-                // 7-bit positive number
-                mesage_length = std::to_integer<iproto::SizeType>(msgpack_length_type
-                                                                  & std::byte {0b01111111});
-              } else if ((msgpack_length_type & std::byte {0b1110000}) == std::byte {0b1110000}) {
-                // @todo error negative length (5-bit negative)
-                // return ec
-              } else {
-                unsigned read_octets = 0;
-                switch (std::to_integer<std::int8_t>(msgpack_length_type)) {
-                  case 0xcc:
-                    // read uint8_t
-                    break;
-                  case 0xcd:
-                    // uint16_t
-                    break;
-                  case 0xce:
-                    // uint32_t
-                    break;
-                }
+              auto msg_body = co_await transfer_exactly(
+                  length, boost::asio::redirect_error(boost::asio::deferred, ec));
+              if (ec) {
+                // log error
+                co_return state.complete(ec, std::string {});
               }
 
-              // read the rest of the length
-
-              // read the rest of the packet
-
-              // read message length (MP_UINT32) - 5 octets
-              // According to:
-              // https://github.com/msgpack/msgpack/blob/master/spec.md#int-format-family
-              //
-              // uint 32 stores a 32-bit big-endian unsigned integer
-              // +--------+--------+--------+--------+--------+
-              // |  0xce  |ZZZZZZZZ|ZZZZZZZZ|ZZZZZZZZ|ZZZZZZZZ|
-              // +--------+--------+--------+--------+--------+
-
-              // check if 0xcf
-
-              // read the body
-              m_buffer.prepare(mesage_length);
-              auto read_bytes = co_await boost::asio::async_read(
-                  m_next_layer,
-                  m_buffer.get_receive_buffer(),
-                  boost::asio::redirect_error(boost::asio::deferred, ec),
-                  boost::asio::transfer_at_least(mesage_length));
-              m_buffer.advance_writer(read_bytes);
+              // decode header from the body
+              // return the message
 
               if (ec) {
                 co_return state.complete(ec, std::string {});
@@ -163,10 +127,7 @@ public:
         handler);
   }
 
-  void clear()
-  {
-    // @todo clear
-  }
+  void clear() { m_buffer.clear(); }
 
   /**
    * @brief next_layer returns next layer in the stack of stream layers.
@@ -197,7 +158,94 @@ public:
   executor_type get_executor() const noexcept { return m_next_layer.get_executor(); }
 
 private:
-  iproto::SizeType read_length() {}
+  // transfer_exactly -> FrozenBuffer
+  template<class H>
+  auto transfer_exactly(std::size_t bytes, H&& handle)
+  {
+    return boost::asio::async_initiate<H, void(error_code, FrozenBuffer)>(
+        boost::asio::experimental::co_composed<void(error_code, FrozenBuffer)>(
+            [this](auto state, std::size_t bytes) -> void
+            {
+              if (m_buffer.get_ready_buffer().size() >= bytes) {
+                co_return state.complete(error_code {}, m_buffer.advance_reader(bytes));
+              }
+
+              // read more data
+              m_buffer.prepare(bytes);
+              auto [ec, read_bytes] =
+                  co_await boost::asio::async_read(m_next_layer,
+                                                   m_buffer.get_receive_buffer(),
+                                                   boost::asio::transfer_at_least(bytes),
+                                                   boost::asio::as_tuple(boost::asio::deferred));
+              if (ec) {
+                co_return state.complete(ec, FrozenBuffer {});
+              }
+
+              m_buffer.advance_writer(read_bytes);
+              co_return state.complete(error_code {}, m_buffer.advance_reader(bytes));
+            }),
+        handle,
+        bytes);
+  }
+
+  template<class H>
+  auto read_message_length(H&& handle)
+  {
+    return boost::asio::async_initiate<H, void(error_code, iproto::SizeType)>(
+        boost::asio::experimental::co_composed<void(error_code, iproto::SizeType)>(
+            [this](auto state) -> void
+            {
+              auto buf = co_await transfer_exactly(1, boost::asio::deferred);
+              uint8_t type = *static_cast<uint8_t*>(buf.data());
+              std::int64_t result = 0;
+              if ((type & 0b10000000) == 0) {
+                // 7-bit positive number
+                co_return state.complete(error_code {}, type & 0b01111111);
+              } else if (type == 0xcc) {  // 8 bit unsigned big endian
+                buf = co_await transfer_exactly(1, boost::asio::deferred);
+                co_return state.complete(error_code {}, *static_cast<uint8_t*>(buf.data()));
+              } else if (type == 0xcc) {  // 16 bit unsigned big endian
+                buf = co_await transfer_exactly(2, boost::asio::deferred);
+                co_return state.complete(
+                    error_code {},
+                    boost::endian::big_to_native(*static_cast<uint16_t*>(buf.data())));
+              } else if (type == 0xce) {  // 32 bit unsigned big endian
+                buf = co_await transfer_exactly(4, boost::asio::deferred);
+                co_return state.complete(
+                    error_code {},
+                    boost::endian::big_to_native(*static_cast<uint32_t*>(buf.data())));
+              } else if (type == 0xcf) {  // 64 bit unsigned big endian
+                buf = co_await transfer_exactly(8, boost::asio::deferred);
+                co_return state.complete(
+                    error_code {},
+                    boost::endian::big_to_native(*static_cast<uint64_t*>(buf.data())));
+              } else if ((type & 0b11100000) == 0b11100000) {
+                result = -1;
+              } else if (type == 0xd0) {  // 8 bit signed big endian
+                buf = co_await transfer_exactly(1, boost::asio::deferred);
+                result = *static_cast<int8_t*>(buf.data());
+              } else if (type == 0xd1) {  // 16 bit signed big endian
+                buf = co_await transfer_exactly(2, boost::asio::deferred);
+                result = boost::endian::big_to_native(*static_cast<int16_t*>(buf.data()));
+              } else if (type == 0xd2) {  // 32 bit signed big endian
+                buf = co_await transfer_exactly(4, boost::asio::deferred);
+                result = boost::endian::big_to_native(*static_cast<int32_t*>(buf.data()));
+              } else if (type == 0xd3) {  // 64 bit signed big endian
+                buf = co_await transfer_exactly(8, boost::asio::deferred);
+                result = boost::endian::big_to_native(*static_cast<int64_t*>(buf.data()));
+              }
+
+              if (result < 0 || result > std::numeric_limits<iproto::SizeType>::max()) {
+                // @todo log error negative length (5-bit negative)
+                co_return state.complete(error_code(boost::system::errc::protocol_error,
+                                                    boost::system::system_category()),
+                                         0);
+              }
+
+              co_return state.complete(error_code {}, result);
+            }),
+        handle);
+  }
 
   Stream m_next_layer;
   MutableBuffer m_buffer;

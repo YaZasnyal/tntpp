@@ -75,6 +75,10 @@ public:
     assert(m_write_pointer <= m_size);
   }
 
+  bool is_empty() {
+    return  m_write_pointer == 0;
+  }
+
 private:
   std::size_t m_write_pointer {0};
   std::size_t m_read_pointer {0};
@@ -93,6 +97,7 @@ using SharedBufferSptr = std::shared_ptr<SharedBuffer>;
 class FrozenBuffer
 {
 public:
+  FrozenBuffer() = default;
   FrozenBuffer(const void* data, const std::size_t size, const SharedBufferSptr buf)
       : m_data(data)
       , m_size(size)
@@ -109,9 +114,9 @@ public:
   std::size_t size() const noexcept { return m_size; };
 
 private:
-  const void* m_data;
-  std::size_t m_size;
-  SharedBufferSptr m_buf;
+  const void* m_data {nullptr};
+  std::size_t m_size {0};
+  SharedBufferSptr m_buf {nullptr};
 };
 
 /**
@@ -125,7 +130,7 @@ private:
 class MutableBuffer
 {
 public:
-  MutableBuffer(std::size_t default_length)
+  explicit MutableBuffer(std::size_t default_length)
       : m_default_length(default_length)
       , m_buffer(std::make_shared<SharedBuffer>(m_default_length))
   {
@@ -151,7 +156,7 @@ public:
    * If there is no space for new data it gets reallocated so that it will have default_length
    * bytes free to use.
    */
-  boost::asio::mutable_buffer get_receive_buffer() noexcept
+  [[nodiscard]] boost::asio::mutable_buffer get_receive_buffer() noexcept
   {
     if (m_buffer->free() == 0) {
       prepare(m_default_length);
@@ -167,7 +172,7 @@ public:
   /**
    * Marks bytes as consumed
    */
-  FrozenBuffer advance_reader(std::size_t bytes)
+  [[nodiscard]] FrozenBuffer advance_reader(std::size_t bytes)
   {
     auto const_buf = m_buffer->get_ready_buffer();
     assert(const_buf.size() >= bytes);
@@ -181,9 +186,19 @@ public:
    *
    * @warning returned object may get invalidated after any write operation
    */
-  boost::asio::const_buffer get_ready_buffer() const noexcept
+  [[nodiscard]] boost::asio::const_buffer get_ready_buffer() const noexcept
   {
     return m_buffer->get_ready_buffer();
+  }
+
+  void clear()
+  {
+    if (m_buffer->is_empty()) {
+      return;
+    }
+
+    auto new_buffer = std::make_shared<SharedBuffer>(m_default_length);
+    m_buffer = new_buffer;
   }
 
 private:
