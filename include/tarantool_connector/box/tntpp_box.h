@@ -13,7 +13,7 @@ namespace tntpp::box
 class Box
 {
 public:
-  Box(Connector& conn)
+  Box(ConnectorSptr& conn)
       : m_conn(conn)
   {
   }
@@ -38,10 +38,16 @@ public:
    * instances of Box.
    * @return
    */
-  Connector& get_connector() const { return m_conn; }
+  ConnectorSptr& get_connector() const { return m_conn; }
 
 private:
-  Connector& m_conn;
+  struct BoxInternal
+  {
+    ConnectorSptr& m_conn;
+    // space and index map
+  };
+
+  std::shared_ptr<BoxInternal> m_state;
 };
 
 }
