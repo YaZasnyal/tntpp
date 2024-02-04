@@ -21,7 +21,8 @@ using MpUint = std::uint64_t;
 
 using OperationId = MpUint;
 /// IProto message cannot be more that uint32::max() bytes long according to spec
-using SizeType = MpUint;
+inline static const unsigned char size_tag = 0xce ;
+using SizeType = std::uint32_t;
 
 enum class RequestType : MpUint
 {
@@ -105,7 +106,7 @@ RequestType int_to_req_type(MpUint type)
   return RequestType::Unknown;
 }
 
-enum class FieldType
+enum class FieldType : MpUint
 {
   Version = 0x54,  // Binary protocol version supported by the client (MP_UINT)
   Features = 0x55,  // Supported binary protocol features (MP_ARRAY)
@@ -195,6 +196,28 @@ MSGPACK_API_VERSION_NAMESPACE(MSGPACK_DEFAULT_API_NS)
         }
       }
       return o;
+    }
+  };
+
+  template<>
+  struct pack<tntpp::detail::iproto::MessageHeader>
+  {
+    template<typename Stream>
+    msgpack::packer<Stream>& operator()(msgpack::packer<Stream>& s,
+                                        tntpp::detail::iproto::MessageHeader const& v) const
+    {
+      using FieldType = tntpp::detail::iproto::FieldType;
+      s.pack_map(v.stream_id ? 3 : 2);
+      s.pack(static_cast<tntpp::detail::iproto::MpUint>(FieldType::Sync));
+      s.pack(v.sync);
+      s.pack(static_cast<tntpp::detail::iproto::MpUint>(FieldType::RequestType));
+      s.pack(static_cast<tntpp::detail::iproto::MpUint>(v.request_type));
+      if(v.stream_id)
+      {
+        s.pack(static_cast<tntpp::detail::iproto::MpUint>(FieldType::StreamId));
+        s.pack(v.stream_id.value());
+      }
+      return s;
     }
   };
 

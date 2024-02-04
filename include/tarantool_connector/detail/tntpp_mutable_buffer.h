@@ -201,6 +201,8 @@ public:
     return m_buffer->get_ready_buffer();
   }
 
+  std::size_t ready() const { return m_buffer->ready(); }
+
   void clear()
   {
     if (m_buffer->is_empty()) {

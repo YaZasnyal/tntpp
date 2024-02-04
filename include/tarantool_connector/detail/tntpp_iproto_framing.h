@@ -66,6 +66,11 @@ auto read_tarantool_hello(Stream& stream, H&& handler)
       std::ref(stream));
 }
 
+/**
+ * IprotoFrame represents a single response from the server
+ *
+ * This class does not know about request types and only holds the information to interpret it
+ */
 class IprotoFrame
 {
 public:
@@ -197,7 +202,6 @@ public:
   executor_type get_executor() const noexcept { return m_next_layer.get_executor(); }
 
 private:
-  // transfer_exactly -> FrozenBuffer
   template<class H>
   auto transfer_exactly(std::size_t bytes, H&& handle)
   {
@@ -214,7 +218,7 @@ private:
               auto [ec, read_bytes] =
                   co_await boost::asio::async_read(m_next_layer,
                                                    m_buffer.get_receive_buffer(),
-                                                   boost::asio::transfer_at_least(bytes),
+                                                   boost::asio::transfer_at_least(bytes - m_buffer.ready()),
                                                    boost::asio::as_tuple(boost::asio::deferred));
               if (ec) {
                 co_return state.complete(ec, FrozenBuffer {});

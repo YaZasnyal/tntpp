@@ -13,7 +13,9 @@
 #include <boost/asio/redirect_error.hpp>
 
 #include "connection.h"
+#include "detail/tntpp_op_ping.h"
 #include "detail/tntpp_operation.h"
+#include "detail/tntpp_request.h"
 
 namespace tntpp
 {
@@ -107,22 +109,26 @@ public:
   {
     auto init = [this](auto handler, const detail::Operation& request)
     {
-      // dispatch this function to the connection strand if we are not there
-      // already
+      // dispatch function to the connection strand if we are not there already
       m_state->m_conn->get_strand().dispatch(
-          [this, handler = std::move(handler), &request]()
+          [this, handler = std::move(handler), &request]() mutable
           {
+            boost::asio::any_completion_handler<void(error_code, detail::IprotoFrame)> any_handler(
+                std::move(handler));
             if (m_state->m_s != Internal::State::Connected) {
-              handler(boost::system::errc::not_connected);
+              any_handler(
+                  error_code(boost::system::errc::not_connected, boost::system::system_category()),
+                  detail::IprotoFrame {});
             }
 
+            m_state->m_requests.insert({request.id, std::move(any_handler)});
             m_state->m_conn->send_data(request.data);
-            boost::asio::any_completion_handler<void(error_code)> any_handler = handler;
-            m_state->m_requests.emplace({request.id, std::move(handler)});
-          });
+          },
+          boost::asio::recycling_allocator<void> {});
     };
 
-    return boost::asio::async_initiate<H, void(error_code)>(init, handler, std::ref(request));
+    return boost::asio::async_initiate<H, void(error_code, detail::IprotoFrame)>(
+        init, handler, std::ref(request));
   }
 
   /**
@@ -136,16 +142,40 @@ public:
   template<class H>
   auto ping(H&& handler)
   {
+    // serialize
+    detail::RequestPacker packer;
+    detail::iproto::MessageHeader header;
+    header.sync = generate_id();
+    header.request_type = detail::iproto::RequestType::Ping;
+    packer.pack(header);
+    packer.pack(detail::PingRequest {});
+    packer.finalize();
+
     return boost::asio::async_initiate<H, void(error_code)>(
         boost::asio::experimental::co_composed<void(error_code)>(
-            [this](auto state) -> void { co_return state.complete(error_code {}); }),
-        handler);
+            [this](
+                auto state, detail::iproto::OperationId id, detail::RequestPacker buffer) -> void
+            {
+              auto [ec, buf] = co_await send_request(
+                  detail::Operation {
+                      .id = id, .data = detail::Data(buffer.str().data(), buffer.str().size())},
+                  boost::asio::as_tuple(boost::asio::deferred));
+
+              co_return state.complete(ec);
+            }),
+        handler,
+        header.sync,
+        std::move(packer));
   }
 
 private:
   class Internal
   {
   public:
+    Internal(detail::ConnectionSptr conn)
+        : m_conn(std::move(conn))
+    {
+    }
     LogConsumer* get_logger() { return m_conn->get_config().logger(); }
 
     void reset()
@@ -153,7 +183,13 @@ private:
       if (m_s == State::Connected) {
         m_s = State::Connecting;
       }
-      // todo clear handlers (call them with an error)
+      for (auto& request : m_requests) {
+        request.second(error_code {m_s == State::Stopped ? boost::system::errc::operation_canceled
+                                                         : boost::system::errc::broken_pipe,
+                                   boost::system::system_category()},
+                       detail::IprotoFrame {});
+      }
+      m_requests.clear();
       m_conn->stop();
     }
 
@@ -167,7 +203,7 @@ private:
 
     std::atomic<detail::iproto::OperationId> m_request_id {0};
     std::unordered_map<detail::iproto::OperationId,
-                       boost::asio::any_completion_handler<void(error_code)>>
+                       boost::asio::any_completion_handler<void(error_code, detail::IprotoFrame)>>
         m_requests;
     // watchers
 
@@ -183,7 +219,7 @@ private:
    * Connector expects fully established connection
    */
   Connector(detail::ConnectionSptr conn)
-      : m_state(new Internal {.m_conn = std::move(conn)})
+      : m_state(new Internal(std::move(conn)))
   {
   }
 
@@ -238,8 +274,7 @@ private:
         }
 
         try {
-          // todo push the data
-          it.mapped()(error_code {});
+          it.mapped()(error_code {}, std::move(message));
         } catch (std::exception& e) {
           TNTPP_LOG(state->get_logger(),
                     Warn,
@@ -266,6 +301,7 @@ private:
                   "[receive loop] unhandled exception; resetting: {{error='{}'}}",
                   err.what());
         assert(false && "must not be here");
+        state->reset();
         continue;
       }
     }

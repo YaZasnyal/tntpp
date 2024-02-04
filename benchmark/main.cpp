@@ -12,34 +12,26 @@
 
 static void simple_loop(benchmark::State& s)
 {
-  static boost::asio::io_context ctx;
-  static std::jthread thread(
+  boost::asio::io_context ctx;
+  std::jthread thread(
       [&]()
       {
         auto w = boost::asio::io_context::work(ctx);
         ctx.run();
       });
 
-  static tntpp::StdoutLogger logger(tntpp::LogLevel::Trace);
+  static tntpp::StdoutLogger logger(tntpp::LogLevel::Info);
   auto conn =
       tntpp::Connector::connect(ctx.get_executor(),
                                 tntpp::Config().host("192.168.4.2").port(3301).logger(&logger),
                                 boost::asio::use_future)
           .get();
 
-  boost::asio::co_spawn(
-      ctx,
-      [&]() -> boost::asio::awaitable<void>
-      {
-        for (auto _ : s) {
-          std::this_thread::sleep_for(std::chrono::seconds(1));
-          //          co_await conn->ping(boost::asio::use_awaitable);
-        }
-        co_return;
-      },
-      boost::asio::use_future)
-      .get();
-  // ctx.stop();
+  for (auto _ : s) {
+    conn->ping(boost::asio::as_tuple(boost::asio::use_future)).get();
+  }
+
+  ctx.stop();
 }
 BENCHMARK(simple_loop);  //->ThreadRange(1, std::thread::hardware_concurrency());
 
