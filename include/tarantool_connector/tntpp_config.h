@@ -75,7 +75,12 @@ public:
    * decrease throughput of the connector. This option is not recommended for
    * connections that handle many requests concurrently.
    */
-  [[nodiscard]] bool nodelay() const noexcept { return m_nodelay; }
+  Config& no_delay(bool enable) noexcept
+  {
+    m_nodelay = enable;
+    return *this;
+  }
+  [[nodiscard]] bool no_delay() const noexcept { return m_nodelay; }
 
   /**
    * @brief capacity of the send queue
@@ -91,7 +96,11 @@ public:
    * exhausted but that the queue will shrink to this value after the operation
    * completes to reduce memory allocated when burst occurs.
    */
-  void send_queue_capacity(std::size_t size) noexcept { m_send_queue_capacity = size; }
+  Config& send_queue_capacity(std::size_t size) noexcept
+  {
+    m_send_queue_capacity = size;
+    return *this;
+  }
   [[nodiscard]] std::size_t send_queue_capacity() const noexcept { return m_send_queue_capacity; }
 
   /**
@@ -100,7 +109,11 @@ public:
    * It is recommended to be big enough to store multiple messages at the same time to reduce the
    * number of memory allocations
    */
-  void receive_buffer_size(std::size_t size) noexcept { m_receive_buffer_size = size; }
+  Config& receive_buffer_size(std::size_t size) noexcept
+  {
+    m_receive_buffer_size = size;
+    return *this;
+  }
   [[nodiscard]] std::size_t receive_buffer_size() const noexcept { return m_receive_buffer_size; }
 
 private:

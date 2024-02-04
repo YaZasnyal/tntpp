@@ -142,7 +142,6 @@ public:
   template<class H>
   auto ping(H&& handler)
   {
-    // serialize
     detail::RequestPacker packer;
     detail::iproto::MessageHeader header;
     header.sync = generate_id();

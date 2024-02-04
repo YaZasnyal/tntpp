@@ -100,12 +100,12 @@ public:
                             ec.message());
                   continue;
                 }
-                socket.set_option(tcp::no_delay(m_config.nodelay()));
+                socket.set_option(tcp::no_delay(m_config.no_delay()));
                 TNTPP_LOG(m_config.logger(),
                           Info,
                           "connection established; {{endpoint='{}', no_delay={}}}",
                           socket.remote_endpoint(),
-                          m_config.nodelay());
+                          m_config.no_delay());
 
                 // @todo add timeout
                 auto salt = co_await read_tarantool_hello(socket, redirect_error(deferred, ec));
