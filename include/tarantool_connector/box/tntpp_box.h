@@ -5,7 +5,16 @@
 #ifndef TARANTOOL_CONNECTOR_TNTPP_BOX_H
 #define TARANTOOL_CONNECTOR_TNTPP_BOX_H
 
-#include <tarantool_connector/tarantool_connector.hpp>
+#include <memory>
+#include <string_view>
+
+#include <boost/asio/as_tuple.hpp>
+#include <boost/asio/deferred.hpp>
+
+#include "tarantool_connector/detail/iproto_typedefs.h"
+#include "tarantool_connector/detail/tntpp_operation.h"
+#include "tarantool_connector/detail/tntpp_request.h"
+#include "tarantool_connector/tarantool_connector.hpp"
 
 namespace tntpp::box
 {
@@ -13,11 +22,16 @@ namespace tntpp::box
 class GenericResult
 {
 public:
+  GenericResult() = default;
   GenericResult(detail::IprotoFrame frame)
       : m_frame(std::move(frame))
   {
     assert(m_frame.body().data() != nullptr);
   }
+  GenericResult(GenericResult&&) = default;
+  GenericResult(const GenericResult&) = delete;
+  GenericResult& operator=(GenericResult&&) = default;
+  GenericResult& operator=(const GenericResult&) = delete;
 
   /**
    * Convert raw buffer to the specified type
@@ -100,8 +114,8 @@ private:
 class Box
 {
 public:
-  Box(ConnectorSptr& conn)
-  //      : m_conn(conn)
+  explicit Box(ConnectorSptr& conn)
+      : m_state(new BoxInternal {conn})
   {
   }
   Box(const Box&) = delete;
@@ -145,12 +159,13 @@ public:
     header.sync = m_state->m_conn->generate_id();
     header.request_type = detail::iproto::RequestType::Call;
     packer.pack(header);
-    packer.pack(function);
-    packer.pack(std::forward<decltype(args)>(args));
+    packer.begin_map(2);
+    packer.pack_map_entry(detail::iproto::FieldType::FunctionName, function);
+    packer.pack_map_entry(detail::iproto::FieldType::Tuple, std::forward<decltype(args)>(args));
     packer.finalize();
 
     return boost::asio::async_initiate<H, void(error_code, GenericResult)>(
-        boost::asio::experimental::co_composed<H, void(error_code, GenericResult)>(
+        boost::asio::experimental::co_composed<void(error_code, GenericResult)>(
             [this](
                 auto state, detail::iproto::OperationId id, detail::RequestPacker buffer) -> void
             {
@@ -183,12 +198,13 @@ public:
     header.sync = m_state->m_conn->generate_id();
     header.request_type = detail::iproto::RequestType::Eval;
     packer.pack(header);
-    packer.pack(expression);
-    packer.pack(std::forward<decltype(args)>(args));
+    packer.begin_map(2);
+    packer.pack_map_entry(detail::iproto::FieldType::Expr, expression);
+    packer.pack_map_entry(detail::iproto::FieldType::Tuple, std::forward<decltype(args)>(args));
     packer.finalize();
 
     return boost::asio::async_initiate<H, void(error_code, GenericResult)>(
-        boost::asio::experimental::co_composed<H, void(error_code, GenericResult)>(
+        boost::asio::experimental::co_composed<void(error_code, GenericResult)>(
             [this](
                 auto state, detail::iproto::OperationId id, detail::RequestPacker buffer) -> void
             {
@@ -211,12 +227,12 @@ public:
    * instances of Box.
    * @return
    */
-  ConnectorSptr& get_connector() const { return m_conn; }
+  ConnectorSptr& get_connector() const { return m_state->m_conn; }
 
 private:
   struct BoxInternal
   {
-    ConnectorSptr& m_conn;
+    ConnectorSptr m_conn;
     // space and index map
   };
 

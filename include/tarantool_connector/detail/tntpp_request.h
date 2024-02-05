@@ -38,7 +38,19 @@ public:
   template<class T>
   void pack(T&& data)
   {
-    msgpack::pack(m_stream, data);
+    msgpack::pack(m_stream, std::forward<decltype(data)>(data));
+  }
+
+  void begin_map(uint32_t count)
+  {
+    msgpack::packer(m_stream).pack_map(count);
+  }
+
+  template<class T>
+  void pack_map_entry(iproto::FieldType field, T&& data)
+  {
+    msgpack::pack(m_stream, static_cast<iproto::MpUint>(field));
+    msgpack::pack(m_stream, std::forward<decltype(data)>(data));
   }
 
   void finalize()
@@ -46,7 +58,7 @@ public:
     iproto::SizeType real_size = static_cast<iproto::SizeType>(m_stream.view().size())
         - sizeof(size_tag) - sizeof(real_size);
     boost::endian::native_to_big_inplace(real_size);
-    std::memcpy(const_cast<char*>(m_stream.view().data()) // NOLINT(*-pro-type-const-cast)
+    std::memcpy(const_cast<char*>(m_stream.view().data())  // NOLINT(*-pro-type-const-cast)
                     + sizeof(size_tag),  // NOLINT(*-pro-bounds-pointer-arithmetic)
                 &real_size,
                 sizeof(real_size));

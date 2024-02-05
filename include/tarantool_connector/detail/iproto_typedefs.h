@@ -21,7 +21,7 @@ using MpUint = std::uint64_t;
 
 using OperationId = MpUint;
 /// IProto message cannot be more that uint32::max() bytes long according to spec
-inline static const unsigned char size_tag = 0xce ;
+inline static const unsigned char size_tag = 0xce;
 using SizeType = std::uint32_t;
 
 enum class RequestType : MpUint
@@ -118,6 +118,10 @@ enum class FieldType : MpUint
   // ...
 
   StreamId = 0x0a,  // Unique stream identifier (MP_UINT)
+
+  Tuple = 0x21,  // Tuple, arguments, operations, or authentication pair (MP_ARRAY)
+  FunctionName = 0x22,  // Name of the called function. Used in IPROTO_CALL (MP_STR)
+  Expr = 0x27,  // Command argument. Used in IPROTO_EVAL (MP_STR)
 };
 
 std::optional<FieldType> int_to_field_type(MpUint type)
@@ -130,6 +134,9 @@ std::optional<FieldType> int_to_field_type(MpUint type)
     case FieldType::Timestamp:
     case FieldType::RequestType:
     case FieldType::StreamId:
+    case FieldType::Tuple:
+    case FieldType::FunctionName:
+    case FieldType::Expr:
       return static_cast<FieldType>(type);
   }
   return std::nullopt;
@@ -212,8 +219,7 @@ MSGPACK_API_VERSION_NAMESPACE(MSGPACK_DEFAULT_API_NS)
       s.pack(v.sync);
       s.pack(static_cast<tntpp::detail::iproto::MpUint>(FieldType::RequestType));
       s.pack(static_cast<tntpp::detail::iproto::MpUint>(v.request_type));
-      if(v.stream_id)
-      {
+      if (v.stream_id) {
         s.pack(static_cast<tntpp::detail::iproto::MpUint>(FieldType::StreamId));
         s.pack(v.stream_id.value());
       }

@@ -1,3 +1,6 @@
+#ifndef TARANTOOL_CONNECTOR_TARANTOOL_CONNECTOR_H
+#define TARANTOOL_CONNECTOR_TARANTOOL_CONNECTOR_H
+
 #include <atomic>
 #include <cassert>
 #include <exception>
@@ -312,3 +315,5 @@ private:
 };
 
 }  // namespace tntpp
+
+#endif // TARANTOOL_CONNECTOR_TARANTOOL_CONNECTOR_H
