@@ -28,10 +28,11 @@ static void simple_loop(benchmark::State& s)
                                 boost::asio::use_future)
           .get();
   tntpp::box::Box box(conn);
-  auto res = box.eval("return ...", std::make_tuple(1,2,3), boost::asio::use_future).get();
-  std::cout << static_cast<const char*>(res.get_raw_body().data()) << "\n";
-  res = box.call("help", std::make_tuple(std::vector{1,2,3}), boost::asio::use_future).get();
-  std::cout << static_cast<const char*>(res.get_raw_body().data()) << "\n";
+  auto res = box.eval("return ...", std::make_tuple(1, 2, 3), boost::asio::use_future)
+                 .get()
+                 .as<std::tuple<int, int, int>>();
+  auto res2 = box.call("help", std::make_tuple(1, 2, 3), boost::asio::use_future).get();
+  std::cout << static_cast<const char*>(res2.get_raw_body().data()) << "\n";
   std::exit(-1);
 
   for (auto _ : s) {

@@ -114,7 +114,8 @@ enum class FieldType : MpUint
   SchemaVersion = 0x05,  // Version of the database schema (MP_UINT)
   Timestamp = 0x04,  // Time in seconds since the Unix epoch (MP_DOUBLE)
   RequestType = 0x00,  // Request type or response type (MP_UINT)
-
+  Data = 0x30,  // Data passed in the transaction. Can be empty. Used in all requests and responses
+                // (MP_OBJECT)
   // ...
 
   StreamId = 0x0a,  // Unique stream identifier (MP_UINT)
@@ -133,6 +134,7 @@ std::optional<FieldType> int_to_field_type(MpUint type)
     case FieldType::SchemaVersion:
     case FieldType::Timestamp:
     case FieldType::RequestType:
+    case FieldType::Data:
     case FieldType::StreamId:
     case FieldType::Tuple:
     case FieldType::FunctionName:

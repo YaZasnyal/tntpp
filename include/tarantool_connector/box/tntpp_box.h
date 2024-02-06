@@ -9,6 +9,7 @@
 #include <string_view>
 
 #include <boost/asio/as_tuple.hpp>
+#include <boost/asio/buffer.hpp>
 #include <boost/asio/deferred.hpp>
 
 #include "tarantool_connector/detail/iproto_typedefs.h"
@@ -37,20 +38,6 @@ public:
    * Convert raw buffer to the specified type
    *
    * @tparam T result type
-   * @return parsed object
-   */
-  template<class T>
-  T as() const
-  {
-    auto object =
-        msgpack::unpack(static_cast<const char*>(m_frame.body().data()), m_frame.body().size(), 0);
-    return object->convert();
-  }
-
-  /**
-   * Convert raw buffer to the specified type
-   *
-   * @tparam T result type
    * @param v parsed object
    */
   template<class T>
@@ -58,7 +45,45 @@ public:
   {
     auto object =
         msgpack::unpack(static_cast<const char*>(m_frame.body().data()), m_frame.body().size(), 0);
-    object->convert(v);
+    if (object->type != msgpack::type::MAP) {
+      throw msgpack::type_error();
+    }
+
+    for (auto& kv : object->via.map) {  // NOLINT(*-pro-type-union-access)
+      if (kv.key.type != msgpack::type::POSITIVE_INTEGER) {
+        throw msgpack::type_error();
+      }
+
+      auto key_type = detail::iproto::int_to_field_type(kv.key.via.u64);
+      if (!key_type) {
+        // unknown (does not care)
+        continue;
+      }
+      switch (*key_type) {
+        case detail::iproto::FieldType::Data:
+          kv.val.convert(v);
+          return;
+        default:
+          continue;
+      }
+    }
+
+    // no response found
+    throw msgpack::type_error();
+  }
+
+  /**
+   * Convert raw buffer to the specified type
+   *
+   * @tparam T result type
+   * @return parsed object
+   */
+  template<class T>
+  T as() const
+  {
+    T result;
+    as<T>(result);
+    return result;
   }
 
   /**
