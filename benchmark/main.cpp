@@ -30,7 +30,7 @@ static void simple_loop(benchmark::State& s)
   tntpp::box::Box box(conn);
   auto res =
       conn->eval("return ...", std::vector {1, 2, 3}, boost::asio::use_future).get();
-  TNTPP_LOG((&logger),
+  TNTPP_LOG(&logger,
             Info,
             "is_error={}; {}",
             res.is_error(),
@@ -38,12 +38,13 @@ static void simple_loop(benchmark::State& s)
   auto res2 = conn->call("help", std::make_tuple(), boost::asio::use_future)
                   .get()
                   .as<std::tuple<std::vector<std::string>>>();
-  TNTPP_LOG((&logger), Info, "\n{}", fmt::join(std::get<0>(res2), " "));
+  TNTPP_LOG(&logger, Info, "\n{}", fmt::join(std::get<0>(res2), " "));
 
   auto res3 = conn->eval("return ...", msgpack::type::nil_t {}, boost::asio::use_future)
                   .get()
                   .as<std::optional<std::vector<int>>>();
 
+  conn->ping(boost::asio::use_future).get();
   std::exit(-1);
 
   for (auto _ : s) {

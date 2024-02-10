@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cassert>
 #include <exception>
+#include <functional>
 #include <memory>
 #include <unordered_map>
 
@@ -13,6 +14,7 @@
 #include <boost/asio/deferred.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/experimental/co_composed.hpp>
+#include <boost/asio/recycling_allocator.hpp>
 #include <boost/asio/redirect_error.hpp>
 
 #include "connection.h"
@@ -175,21 +177,7 @@ public:
     packer.pack(detail::PingRequest {});
     packer.finalize();
 
-    return boost::asio::async_initiate<H, void(error_code)>(
-        boost::asio::experimental::co_composed<void(error_code)>(
-            [this](
-                auto state, detail::iproto::OperationId id, detail::RequestPacker buffer) -> void
-            {
-              auto [ec, buf] = co_await send_request(
-                  detail::Operation {
-                      .id = id, .data = detail::Data(buffer.str().data(), buffer.str().size())},
-                  boost::asio::as_tuple(boost::asio::deferred));
-
-              co_return state.complete(ec);
-            }),
-        handler,
-        header.sync,
-        std::move(packer));
+    return send_request(header.sync, std::move(packer), handler);
   }
 
   /**
@@ -257,7 +245,7 @@ private:
   class Internal
   {
   public:
-    Internal(detail::ConnectionSptr conn)
+    explicit Internal(detail::ConnectionSptr conn)
         : m_conn(std::move(conn))
     {
     }
@@ -303,7 +291,7 @@ private:
    *
    * Connector expects fully established connection
    */
-  Connector(detail::ConnectionSptr conn)
+  explicit Connector(detail::ConnectionSptr conn)
       : m_state(new Internal(std::move(conn)))
   {
   }

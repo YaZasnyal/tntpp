@@ -82,15 +82,15 @@ public:
 
 #ifndef TNTPP_LOG
 #  define TNTPP_LOG(logger, level, ...)                                                           \
-    {                                                                                             \
+    do {                                                                                          \
       auto l_level__ = ::tntpp::LogLevel::level;                                                  \
-      if (logger && logger->max_log_level() >= l_level__) {                                       \
+      if ((logger) && (logger)->max_log_level() >= l_level__) {                                   \
         auto l_out__ = fmt::memory_buffer();                                                      \
         fmt::format_to(std::back_inserter(l_out__), __VA_ARGS__);                                 \
-        logger->handle(                                                                           \
+        (logger)->handle(                                                                         \
             l_level__, l_out__.data(), l_out__.size(), std::source_location::current());          \
       }                                                                                           \
-    }
+    } while (false)
 #endif
 
 #endif  // TARANTOOL_CONNECTOR_TNTPP_LOGGER_H
