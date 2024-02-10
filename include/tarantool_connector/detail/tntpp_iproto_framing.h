@@ -106,17 +106,16 @@ public:
 
   operator bool() const { return !is_error(); }
 
-  detail::iproto::MpUint get_error_code() const noexcept
+  boost::system::error_code get_error_code() const noexcept
   {
-    auto req_type = static_cast<detail::iproto::MpUint>(m_header.request_type);
-    // @todo make real error_code
     if (m_header.request_type >= detail::iproto::RequestType::TypeErrorBegin
         && m_header.request_type <= detail::iproto::RequestType::TypeErrorEnd)
     {
-      return static_cast<detail::iproto::MpUint>(m_header.request_type)
+      auto code = static_cast<detail::iproto::MpUint>(m_header.request_type)
           - static_cast<detail::iproto::MpUint>(detail::iproto::RequestType::TypeErrorBegin);
+      return error_code(iproto::int_to_tarantool_error(code), iproto::tarantool_error_category());
     }
-    return 0;
+    return error_code(iproto::TarantoolError::Unknown, iproto::tarantool_error_category());
   }
 
   [[nodiscard]] std::string error_text() const
@@ -158,6 +157,10 @@ public:
   template<class T>
   void as(T& v) const
   {
+    if (is_error()) {
+      throw boost::system::system_error(get_error_code());
+    }
+
     auto object = msgpack::unpack(static_cast<const char*>(body().data()), body().size(), 0);
     if (object->type != msgpack::type::MAP) {
       throw msgpack::type_error();
@@ -218,8 +221,15 @@ public:
   template<class T>
   T as(error_code& ec) const noexcept
   {
+    if (is_error()) {
+      ec = get_error_code();
+      return;
+    }
+
     try {
       return as<T>();
+    } catch (const boost::system::system_error& e) {
+      ec = e.code();
     } catch (const std::exception&) {
       ec = error_code(boost::system::errc::protocol_error, boost::system::system_category());
     }
@@ -238,7 +248,14 @@ public:
   void as(T& v, error_code& ec) const noexcept
   {
     try {
+      if (is_error()) {
+        ec = get_error_code();
+        return;
+      }
+
       as<T>(v);
+    } catch (const boost::system::system_error& e) {
+      ec = e.code();
     } catch (const std::exception&) {
       ec = error_code(boost::system::errc::protocol_error, boost::system::system_category());
     }

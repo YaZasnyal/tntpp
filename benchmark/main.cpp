@@ -32,8 +32,9 @@ static void simple_loop(benchmark::State& s)
       conn->eval("ghjghjg ...", std::vector {1, 2, 3}, boost::asio::use_future).get();
   TNTPP_LOG(&logger,
             Info,
-            "is_error={}; {}",
+            "is_error={}; {}; {}",
             res.is_error(),
+            res.get_error_code().what(),
             res.error_text());
 //            fmt::join(*res.as<std::optional<std::vector<int>>>(), ", "));
   auto res2 = conn->call("help", std::make_tuple(), boost::asio::use_future)

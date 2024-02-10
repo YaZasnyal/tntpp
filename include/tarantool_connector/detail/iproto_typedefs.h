@@ -5,6 +5,7 @@
 #ifndef TARANTOOL_CONNECTOR_IPROTO_TYPEDEFS_H
 #define TARANTOOL_CONNECTOR_IPROTO_TYPEDEFS_H
 
+#include <cassert>
 #include <cstdint>
 
 #include <msgpack.hpp>
@@ -52,6 +53,10 @@ std::string req_type_to_str(RequestType op_type)
   switch (op_type) {
     case RequestType::Ok:
       return "Ok";
+    case RequestType::TypeErrorBegin:
+      return "TypeError";
+    case RequestType::TypeErrorEnd:
+      return "TypeError";
     case RequestType::Chunk:
       return "Chunk";
     case RequestType::Select:
@@ -89,6 +94,8 @@ RequestType int_to_req_type(MpUint type)
   switch (static_cast<RequestType>(type)) {
     case RequestType::Ok:
     case RequestType::Chunk:
+    case RequestType::TypeErrorBegin:
+    case RequestType::TypeErrorEnd:
     case RequestType::Select:
     case RequestType::Insert:
     case RequestType::Replace:
@@ -148,7 +155,7 @@ std::optional<FieldType> int_to_field_type(MpUint type)
 }
 
 // clang-format off
-enum class tarantool_error
+enum TarantoolError : MpUint
 {
   Unknown = 0, // Unknown error
   IllegalParams = 1, // Illegal parameters, %s
@@ -173,7 +180,7 @@ enum class tarantool_error
   InvalidMsgpack = 20, // Invalid MsgPack - %s
   ProcRet = 21, // msgpack.encode: can not encode Lua type '%s'
   TupleNotArray = 22, // Tuple/Key must be MsgPack array
-  FieldType = 23, // Tuple field %s type does not match one required by operation: expected %s, got %s
+  FieldTypeMismatch = 23, // Tuple field %s type does not match one required by operation: expected %s, got %s
   IndexPartTypeMismatch = 24, // Field %s has type '%s' in one index, but type '%s' in another
   UpdateSplice = 25, // SPLICE error on field %s: %s
   UpdateArgType = 26, // Argument type in operation '%c' on field %s does not match field type: expected %s
@@ -434,6 +441,610 @@ enum class tarantool_error
 };
 // clang-format on
 
+TarantoolError int_to_tarantool_error(MpUint ec)
+{
+  if (ec <= static_cast<MpUint>(TarantoolError::FieldValueOutOfRange)) {
+    return static_cast<TarantoolError>(ec);
+  }
+  return TarantoolError::Unknown;
+}
+
+class TarantoolErrorCategory : public boost::system::error_category
+{
+public:
+  [[nodiscard]] const char* name() const noexcept override { return "tarantool_error"; }
+  [[nodiscard]] std::string message(int ev) const override
+  {
+    assert(ev >= 0);
+    auto ec = int_to_tarantool_error(static_cast<MpUint>(ev));
+    switch (ec) {
+      case TarantoolError::Unknown:
+        return "Unknown";
+      case TarantoolError::IllegalParams:
+        return "Illegal parameters, %s";
+      case TarantoolError::MemoryIssue:
+        return "Failed to allocate %u bytes in %s for %s";
+      case TarantoolError::TupleFound:
+        return "Duplicate key exists in unique index \"%s\" in space \"%s\" with old tuple - %s "
+               "and new tuple - %s";
+      case TarantoolError::TupleNotFound:
+        return "Tuple doesn't exist in index '%s' in space '%s'";
+      case TarantoolError::Unsupported:
+        return "%s does not support %s";
+      case TarantoolError::NonMaster:
+        return "Can't modify data on a replication slave. My master is: %s";
+      case TarantoolError::Readonly:
+        return "Can't modify data on a read-only instance";
+      case TarantoolError::Injection:
+        return "Error injection '%s'";
+      case TarantoolError::CreateSpace:
+        return "Failed to create space '%s': %s";
+      case TarantoolError::SpaceExists:
+        return "Space '%s' already exists";
+      case TarantoolError::DropSpace:
+        return "Can't drop space '%s': %s";
+      case TarantoolError::AltSpace:
+        return "Can't modify space '%s': %s";
+      case TarantoolError::IndexType:
+        return "Unsupported index type supplied for index '%s' in space '%s'";
+      case TarantoolError::ModifyIndex:
+        return "Can't create or modify index '%s' in space '%s': %s";
+      case TarantoolError::LastDrop:
+        return "Can't drop the primary key in a system space, space '%s'";
+      case TarantoolError::TupleFormatLimit:
+        return "Tuple format limit reached: %u";
+      case TarantoolError::DropPrimaryKey:
+        return "Can't drop primary key in space '%s' while secondary keys exist";
+      case TarantoolError::KeyPartType:
+        return "Supplied key type of part %u does not match index part type: expected %s";
+      case TarantoolError::ExactMatch:
+        return "Invalid key part count in an exact match (expected %u, got %u)";
+      case TarantoolError::InvalidMsgpack:
+        return "Invalid MsgPack - %s";
+      case TarantoolError::ProcRet:
+        return "msgpack.encode: can not encode Lua type '%s'";
+      case TarantoolError::TupleNotArray:
+        return "Tuple/Key must be MsgPack array";
+      case TarantoolError::FieldTypeMismatch:
+        return "Tuple field %s type does not match one required by operation: expected %s, got %s";
+      case TarantoolError::IndexPartTypeMismatch:
+        return "Field %s has type '%s' in one index, but type '%s' in another";
+      case TarantoolError::UpdateSplice:
+        return "SPLICE error on field %s: %s";
+      case TarantoolError::UpdateArgType:
+        return "Argument type in operation '%c' on field %s does not match field type: expected "
+               "%s";
+      case TarantoolError::FormatMismatchIndexPart:
+        return "Field %s has type '%s' in space format, but type '%s' in index definition";
+      case TarantoolError::UnknownUpdateOp:
+        return "Unknown UPDATE operation #%d: %s";
+      case TarantoolError::UpdateField:
+        return "Field %s UPDATE error: %s";
+      case TarantoolError::FunctionTxActive:
+        return "Transaction is active at return from function";
+      case TarantoolError::KeyPartCount:
+        return "Invalid key part count (expected [0..%u], got %u)";
+      case TarantoolError::ProcLua:
+        return "%s";
+      case TarantoolError::NoSuchProc:
+        return "Procedure '%.*s' is not defined";
+      case TarantoolError::NoSuchTrigger:
+        return "Trigger '%s' doesn't exist";
+      case TarantoolError::NoSuchIndexId:
+        return "No index #%u is defined in space '%s'";
+      case TarantoolError::NoSuchSpace:
+        return "Space '%s' does not exist";
+      case TarantoolError::NoSuchFieldNo:
+        return "Field %d was not found in the tuple";
+      case TarantoolError::ExactFieldCount:
+        return "Tuple field count %u does not match space field count %u";
+      case TarantoolError::FieldMissing:
+        return "Tuple field %s required by space format is missing";
+      case TarantoolError::WalIo:
+        return "Failed to write to disk";
+      case TarantoolError::MoreThanOneTuple:
+        return "Get() doesn't support partial keys and non-unique indexes";
+      case TarantoolError::AccessDenied:
+        return "%s access to %s '%s' is denied for user '%s'";
+      case TarantoolError::CreateUser:
+        return "Failed to create user '%s': %s";
+      case TarantoolError::DropUser:
+        return "Failed to drop user or role '%s': %s";
+      case TarantoolError::NoSuchUser:
+        return "User '%s' is not found";
+      case TarantoolError::UserExists:
+        return "User '%s' already exists";
+      case TarantoolError::CredentialsMismatch:
+        return "User not found or supplied credentials are invalid";
+      case TarantoolError::UnknownRequestType:
+        return "Unknown request type %u";
+      case TarantoolError::UnknownSchemaObject:
+        return "Unknown object type '%s'";
+      case TarantoolError::CreateFunction:
+        return "Failed to create function '%s': %s";
+      case TarantoolError::NoSuchFunction:
+        return "Function '%s' does not exist";
+      case TarantoolError::FunctionExists:
+        return "Function '%s' already exists";
+      case TarantoolError::BeforeReplaceRet:
+        return "Invalid return value of space:before_replace trigger: expected tuple or nil";
+      case TarantoolError::MultistatementTransaction:
+        return "Can not perform %s in a multi-statement transaction";
+      case TarantoolError::TriggerExists:
+        return "Trigger '%s' already exists";
+      case TarantoolError::UserMax:
+        return "A limit on the total number of users has been reached: %u";
+      case TarantoolError::NoSuchEngine:
+        return "Space engine '%s' does not exist";
+      case TarantoolError::ReloadCfg:
+        return "Can't set option '%s' dynamically";
+      case TarantoolError::Cfg:
+        return "Incorrect value for option '%s': %s";
+      case TarantoolError::SavepointEmptyTx:
+        return "Can not set a savepoint in an empty transaction";
+      case TarantoolError::NoSuchSavepoint:
+        return "Can not roll back to savepoint: the savepoint does not exist";
+      case TarantoolError::UnknownReplica:
+        return "Replica %s is not registered with replica set %s";
+      case TarantoolError::ReplicasetUuidMismatch:
+        return "Replica set UUID mismatch: expected %s, got %s";
+      case TarantoolError::InvalidUuid:
+        return "Invalid UUID: %s";
+      case TarantoolError::ReplicasetUuidIsRo:
+        return "Can't reset replica set UUID: it is already assigned";
+      case TarantoolError::InstanceUuidMismatch:
+        return "Instance UUID mismatch: expected %s, got %s";
+      case TarantoolError::ReplicaIdIsReserved:
+        return "Can't initialize replica id with a reserved value %u";
+      case TarantoolError::InvalidOrder:
+        return "Invalid LSN order for instance %u: previous LSN = %llu, new lsn = %llu";
+      case TarantoolError::MissingRequestField:
+        return "Missing mandatory field '%s' in request";
+      case TarantoolError::Identifier:
+        return "Invalid identifier '%s' (expected printable symbols only or it is too long)";
+      case TarantoolError::DropFunction:
+        return "Can't drop function %u: %s";
+      case TarantoolError::IteratorType:
+        return "Unknown iterator type '%s'";
+      case TarantoolError::ReplicaMax:
+        return "Replica count limit reached: %u";
+      case TarantoolError::InvalidXlog:
+        return "Failed to read xlog: %lld";
+      case TarantoolError::InvalidXlogName:
+        return "Invalid xlog name: expected %lld got %lld";
+      case TarantoolError::InvalidXlogOrder:
+        return "Invalid xlog order: %lld and %lld";
+      case TarantoolError::NoConnection:
+        return "Connection is not established";
+      case TarantoolError::Timeout:
+        return "Timeout exceeded";
+      case TarantoolError::ActiveTransaction:
+        return "Operation is not permitted when there is an active transaction";
+      case TarantoolError::CursorNoTransaction:
+        return "The transaction the cursor belongs to has ended";
+      case TarantoolError::CrossEngineTransaction:
+        return "A multi-statement transaction can not use multiple storage engines";
+      case TarantoolError::NoSuchRole:
+        return "Role '%s' is not found";
+      case TarantoolError::RoleExists:
+        return "Role '%s' already exists";
+      case TarantoolError::CreateRole:
+        return "Failed to create role '%s': %s";
+      case TarantoolError::IndexExists:
+        return "Index '%s' already exists";
+      case TarantoolError::SessionClosed:
+        return "Session is closed";
+      case TarantoolError::RoleLoop:
+        return "Granting role '%s' to role '%s' would create a loop";
+      case TarantoolError::Grant:
+        return "Incorrect grant arguments: %s";
+      case TarantoolError::PrivGranted:
+        return "User '%s' already has %s access on %s%s";
+      case TarantoolError::RoleGranted:
+        return "User '%s' already has role '%s'";
+      case TarantoolError::PrivNotGranted:
+        return "User '%s' does not have %s access on %s '%s'";
+      case TarantoolError::RoleNotGranted:
+        return "User '%s' does not have role '%s'";
+      case TarantoolError::MissingSnapshot:
+        return "Can't find snapshot";
+      case TarantoolError::CantUpdatePrimaryKey:
+        return "Attempt to modify a tuple field which is part of primary index in space '%s'";
+      case TarantoolError::UpdateIntegoverflow:
+        return "Integer overflow when performing '%c' operation on field %s";
+      case TarantoolError::GuestUserPassword:
+        return "Setting password for guest user has no effect";
+      case TarantoolError::TransactionConflict:
+        return "Transaction has been aborted by conflict";
+      case TarantoolError::UnsupportedPriv:
+        return "Unsupported %s privilege '%s'";
+      case TarantoolError::LoadFunction:
+        return "Failed to dynamically load function '%s': %s";
+      case TarantoolError::FunctionLanguage:
+        return "Unsupported language '%s' specified for function '%s'";
+      case TarantoolError::RtreeRect:
+        return "RTree: %s must be an array with %u (point) or %u (rectangle/box) numeric "
+               "coordinates";
+      case TarantoolError::ProcC:
+        return "%s";
+      case TarantoolError::UnknownRtreeIndexDistanceType:
+        return "Unknown RTREE index distance type %s";
+      case TarantoolError::Protocol:
+        return "%s";
+      case TarantoolError::UpsertUniqueSecondaryKey:
+        return "Space %s has a unique secondary index and does not support UPSERT";
+      case TarantoolError::WrongIndexRecord:
+        return "Wrong record in _index space: got {%s}, expected {%s}";
+      case TarantoolError::WrongIndexParts:
+        return "Wrong index part %u: %s";
+      case TarantoolError::WrongIndexOptions:
+        return "Wrong index options: %s";
+      case TarantoolError::WrongSchemaVersion:
+        return "Wrong schema version, current: %d, in request: %llu";
+      case TarantoolError::MemtxMaxTupleSize:
+        return "Failed to allocate %u bytes for tuple: tuple is too large. Check "
+               "'memtx_max_tuple_size' configuration option.";
+      case TarantoolError::WrongSpaceOptions:
+        return "Wrong space options: %s";
+      case TarantoolError::UnsupportedIndexFeature:
+        return "Index '%s' (%s) of space '%s' (%s) does not support %s";
+      case TarantoolError::ViewIsRo:
+        return "View '%s' is read-only";
+      case TarantoolError::NoTransaction:
+        return "No active transaction";
+      case TarantoolError::System:
+        return "%s";
+      case TarantoolError::Loading:
+        return "Instance bootstrap hasn't finished yet";
+      case TarantoolError::ConnectionToSelf:
+        return "Connection to self";
+      case TarantoolError::KeyPartIsTooLong:
+        return "Key part is too long: %u of %u bytes";
+      case TarantoolError::Compression:
+        return "Compression error: %s";
+      case TarantoolError::CheckpointInProgress:
+        return "Snapshot is already in progress";
+      case TarantoolError::SubStmtMax:
+        return "Can not execute a nested statement: nesting limit reached";
+      case TarantoolError::CommitInSubStmt:
+        return "Can not commit transaction in a nested statement";
+      case TarantoolError::RollbackInSubStmt:
+        return "Rollback called in a nested statement";
+      case TarantoolError::Decompression:
+        return "Decompression error: %s";
+      case TarantoolError::InvalidXlogType:
+        return "Invalid xlog type: expected %s, got %s";
+      case TarantoolError::AlreadyRunning:
+        return "Failed to lock WAL directory %s and hot_standby mode is off";
+      case TarantoolError::IndexFieldCountLimit:
+        return "Indexed field count limit reached: %d indexed fields";
+      case TarantoolError::LocalInstanceIdIsReadOnly:
+        return "The local instance id %u is read-only";
+      case TarantoolError::BackupInProgress:
+        return "Backup is already in progress";
+      case TarantoolError::ReadViewAborted:
+        return "The read view is aborted";
+      case TarantoolError::InvalidIndexFile:
+        return "Invalid INDEX file %s: %s";
+      case TarantoolError::InvalidRunFile:
+        return "Invalid RUN file: %s";
+      case TarantoolError::InvalidVylogFile:
+        return "Invalid VYLOG file: %s";
+      case TarantoolError::CascadeRollback:
+        return "WAL has a rollback in progress";
+      case TarantoolError::VyQuotaTimeout:
+        return "Timed out waiting for Vinyl memory quota";
+      case TarantoolError::PartialKey:
+        return "%s index  does not support selects via a partial key (expected %u parts, got %u). "
+               "Please Consider changing index type to TREE.";
+      case TarantoolError::TruncateSystemSpace:
+        return "Can't truncate a system space, space '%s'";
+      case TarantoolError::LoadModule:
+        return "Failed to dynamically load module '%.*s': %s";
+      case TarantoolError::VinylMaxTupleSize:
+        return "Failed to allocate %u bytes for tuple: tuple is too large. Check "
+               "'vinyl_max_tuple_size' configuration option.";
+      case TarantoolError::WrongDdVersion:
+        return "Wrong _schema version: expected 'major.minor[.patch]'";
+      case TarantoolError::WrongSpaceFormat:
+        return "Wrong space format field %u: %s";
+      case TarantoolError::CreateSequence:
+        return "Failed to create sequence '%s': %s";
+      case TarantoolError::AltSequence:
+        return "Can't modify sequence '%s': %s";
+      case TarantoolError::DropSequence:
+        return "Can't drop sequence '%s': %s";
+      case TarantoolError::NoSuchSequence:
+        return "Sequence '%s' does not exist";
+      case TarantoolError::SequenceExists:
+        return "Sequence '%s' already exists";
+      case TarantoolError::SequenceOverflow:
+        return "Sequence '%s' has overflowed";
+      case TarantoolError::NoSuchIndexName:
+        return "No index '%s' is defined in space '%s'";
+      case TarantoolError::SpaceFieldIsDuplicate:
+        return "Space field '%s' is duplicate";
+      case TarantoolError::CantCreateCollation:
+        return "Failed to initialize collation: %s.";
+      case TarantoolError::WrongCollationOptions:
+        return "Wrong collation options: %s";
+      case TarantoolError::NullablePrimary:
+        return "Primary index of space '%s' can not contain nullable parts";
+      case TarantoolError::NoSuchFieldNameInSpace:
+        return "Field '%s' was not found in space '%s' format";
+      case TarantoolError::TransactionYield:
+        return "Transaction has been aborted by a fiber yield";
+      case TarantoolError::NoSuchGroup:
+        return "Replication group '%s' does not exist";
+      case TarantoolError::SqlBindValue:
+        return "Bind value for parameter %s is out of range for type %s";
+      case TarantoolError::SqlBindType:
+        return "Bind value type %s for parameter %s is not supported";
+      case TarantoolError::SqlBindParameterMax:
+        return "SQL bind parameter limit reached: %d";
+      case TarantoolError::SqlExecute:
+        return "Failed to execute SQL statement: %s";
+      case TarantoolError::UpdateDecimalOverflow:
+        return "Decimal overflow when performing operation '%c' on field %s";
+      case TarantoolError::SqlBindNotFound:
+        return "Parameter %s was not found in the statement";
+      case TarantoolError::ActionMismatch:
+        return "Field %s contains %s on conflict action, but %s in index parts";
+      case TarantoolError::ViewMissingSql:
+        return "Space declared as a view must have SQL statement";
+      case TarantoolError::ForeignKeyConstraint:
+        return "Can not commit transaction: deferred foreign keys violations are not resolved";
+      case TarantoolError::NoSuchModule:
+        return "Module '%s' does not exist";
+      case TarantoolError::NoSuchCollation:
+        return "Collation '%s' does not exist";
+      case TarantoolError::CreateFkConstraint:
+        return "Failed to create foreign key constraint '%s': %s";
+      case TarantoolError::DropFkConstraint:
+        return "Failed to drop foreign key constraint '%s': %s";
+      case TarantoolError::NoSuchConstraint:
+        return "Constraint '%s' does not exist in space '%s'";
+      case TarantoolError::ConstraintExists:
+        return "%s constraint '%s' already exists in space '%s'";
+      case TarantoolError::SqlTypeMismatch:
+        return "Type mismatch: can not convert %s to %s";
+      case TarantoolError::RowidOverflow:
+        return "Rowid is overflowed: too many entries in ephemeral space";
+      case TarantoolError::DropCollation:
+        return "Can't drop collation '%s': %s";
+      case TarantoolError::IllegalCollationMix:
+        return "Illegal mix of collations";
+      case TarantoolError::SqlNoSuchPragma:
+        return "Pragma '%s' does not exist";
+      case TarantoolError::SqlCantResolveField:
+        return "Can’t resolve field '%s'";
+      case TarantoolError::IndexExistsInSpace:
+        return "Index '%s' already exists in space '%s'";
+      case TarantoolError::InconsistentTypes:
+        return "Inconsistent types: expected %s got %s";
+      case TarantoolError::SqlSyntaxWithPos:
+        return "Syntax error at line %d at or near position %d: %s";
+      case TarantoolError::SqlStackOverflow:
+        return "Failed to parse SQL statement: parser stack limit reached";
+      case TarantoolError::SqlSelectWildcard:
+        return "Failed to expand '*' in SELECT statement without FROM clause";
+      case TarantoolError::SqlStatementEmpty:
+        return "Failed to execute an empty SQL statement";
+      case TarantoolError::SqlKeywordIsReserved:
+        return "At line %d at or near position %d: keyword '%.*s' is reserved. Please use double "
+               "quotes if '%.*s' is an identifier.";
+      case TarantoolError::SqlSyntaxNearToken:
+        return "Syntax error at line %d near '%.*s'";
+      case TarantoolError::SqlUnknownToken:
+        return "At line %d at or near position %d: unrecognized token '%.*s'";
+      case TarantoolError::SqlParseGeneric:
+        return "%s";
+      case TarantoolError::SqlAnalyzeArgument:
+        return "ANALYZE statement argument %s is not a base table";
+      case TarantoolError::SqlColumnCountMax:
+        return "Failed to create space '%s': space column count %d exceeds the limit (%d)";
+      case TarantoolError::HexLiteralMax:
+        return "Hex literal %s%s length %d exceeds the supported limit (%d)";
+      case TarantoolError::IntLiteralMax:
+        return "Integer literal %s%s exceeds the supported range [-9223372036854775808, "
+               "18446744073709551615]";
+      case TarantoolError::SqlParseLimit:
+        return "%s %d exceeds the limit (%d)";
+      case TarantoolError::IndexDefUnsupported:
+        return "%s are prohibited in an index definition";
+      case TarantoolError::CkDefUnsupported:
+        return "%s are prohibited in a ck constraint definition";
+      case TarantoolError::MultikeyIndexMismatch:
+        return "Field %s is used as multikey in one index and as single key in another";
+      case TarantoolError::CreateCkConstraint:
+        return "Failed to create check constraint '%s': %s";
+      case TarantoolError::CkConstraintFailed:
+        return "Check constraint failed '%s': %s";
+      case TarantoolError::SqlColumnCount:
+        return "Unequal number of entries in row expression: left side has %u, but right side - "
+               "%u";
+      case TarantoolError::FuncIndexFunc:
+        return "Failed to build a key for functional index '%s' of space '%s': %s";
+      case TarantoolError::FuncIndexFormat:
+        return "Key format doesn't match one defined in functional index '%s' of space '%s': %s";
+      case TarantoolError::FuncIndexParts:
+        return "Wrong functional index definition: %s";
+      case TarantoolError::NoSuchFieldName:
+        return "Field '%s' was not found in the tuple";
+      case TarantoolError::FuncWrongArgCount:
+        return "Wrong number of arguments is passed to %s(): expected %s, got %d";
+      case TarantoolError::BootstrapReadonly:
+        return "Trying to bootstrap a local read-only instance as master";
+      case TarantoolError::SqlFuncWrongRetCount:
+        return "SQL expects exactly one argument returned from %s, got %d";
+      case TarantoolError::FuncInvalidReturnType:
+        return "Function '%s' returned value of invalid type: expected %s got %s";
+      case TarantoolError::SqlParseGenericWithPos:
+        return "At line %d at or near position %d: %s";
+      case TarantoolError::ReplicaNotAnon:
+        return "Replica '%s' is not anonymous and cannot register.";
+      case TarantoolError::CannotRegister:
+        return "Couldn't find an instance to register this replica on.";
+      case TarantoolError::SessionSettingInvalidValue:
+        return "Session setting %s expected a value of type %s";
+      case TarantoolError::SqlPrepare:
+        return "Failed to prepare SQL statement: %s";
+      case TarantoolError::WrongQueryId:
+        return "Prepared statement with id %u does not exist";
+      case TarantoolError::SequenceNotStarted:
+        return "Sequence '%s' is not started";
+      case TarantoolError::NoSuchSessionSetting:
+        return "Session setting %s doesn't exist";
+      case TarantoolError::UncommittedForeignSyncTxns:
+        return "Found uncommitted sync transactions from other instance with id %u";
+      case TarantoolError::SyncMasterMismatch:
+        return "CONFIRM message arrived for an unknown master id %d, expected %d";
+      case TarantoolError::SyncQuorumTimeout:
+        return "Quorum collection for a synchronous transaction is timed out";
+      case TarantoolError::SyncRollback:
+        return "A rollback for a synchronous transaction is received";
+      case TarantoolError::TupleMetadataIsTooBig:
+        return "Can't create tuple: metadata size %u is too big";
+      case TarantoolError::XlogGap:
+        return "%s";
+      case TarantoolError::TooEarlySubscribe:
+        return "Can't subscribe non-anonymous replica %s until join is done";
+      case TarantoolError::SqlCantAddAutoinc:
+        return "Can't add AUTOINCREMENT: space %s can't feature more than one AUTOINCREMENT field";
+      case TarantoolError::QuorumWait:
+        return "Couldn't wait for quorum %d: %s";
+      case TarantoolError::InterferingPromote:
+        return "Instance with replica id %u was promoted first";
+      case TarantoolError::ElectionDisabled:
+        return "Elections were turned off";
+      case TarantoolError::TxnRollback:
+        return "Transaction was rolled back";
+      case TarantoolError::NotLeader:
+        return "The instance is not a leader. New leader is %u";
+      case TarantoolError::SyncQueueUnclaimed:
+        return "The synchronous transaction queue doesn't belong to any instance";
+      case TarantoolError::SyncQueueForeign:
+        return "The synchronous transaction queue belongs to other instance with id %u";
+      case TarantoolError::UnableToProcessInStream:
+        return "Unable to process %s request in stream";
+      case TarantoolError::UnableToProcessOutOfStream:
+        return "Unable to process %s request out of stream";
+      case TarantoolError::TransactionTimeout:
+        return "Transaction has been aborted by timeout";
+      case TarantoolError::ActiveTimer:
+        return "Operation is not permitted if timer is already running";
+      case TarantoolError::TupleFieldCountLimit:
+        return "Tuple field count limit reached: see box.schema.FIELD_MAX";
+      case TarantoolError::CreateConstraint:
+        return "Failed to create constraint '%s' in space '%s': %s";
+      case TarantoolError::FieldConstraintFailed:
+        return "Check constraint '%s' failed for field '%s'";
+      case TarantoolError::TupleConstraintFailed:
+        return "Check constraint '%s' failed for a tuple";
+      case TarantoolError::CreateForeignKey:
+        return "Failed to create foreign key '%s' in space '%s': %s";
+      case TarantoolError::ForeignKeyIntegrity:
+        return "Foreign key '%s' integrity check failed: %s";
+      case TarantoolError::FieldForeignKeyFailed:
+        return "Foreign key constraint '%s' failed for field '%s': %s";
+      case TarantoolError::ComplexForeignKeyFailed:
+        return "Foreign key constraint '%s' failed: %s";
+      case TarantoolError::WrongSpaceUpgradeOptions:
+        return "Wrong space upgrade options: %s";
+      case TarantoolError::NoElectionQuorum:
+        return "Not enough peers connected to start elections: %d out of minimal required %d";
+      case TarantoolError::Ssl:
+        return "%s";
+      case TarantoolError::SplitBrain:
+        return "Split-Brain discovered: %s";
+      case TarantoolError::OldTerm:
+        return "The term is outdated: old - %llu, new - %llu";
+      case TarantoolError::InterferingElections:
+        return "Interfering elections started";
+      case TarantoolError::IteratorPosition:
+        return "Iterator position is invalid";
+      case TarantoolError::DefaultValueType:
+        return "Type of the default value does not match tuple field %s type: expected %s, got %s";
+      case TarantoolError::UnknownAuthMethod:
+        return "Unknown authentication method '%s'";
+      case TarantoolError::InvalidAuthData:
+        return "Invalid '%s' data: %s";
+      case TarantoolError::InvalidAuthRequest:
+        return "Invalid '%s' request: %s";
+      case TarantoolError::WeakPassword:
+        return "Password doesn't meet security requirements: %s";
+      case TarantoolError::OldPassword:
+        return "Password must differ from last %d passwords";
+      case TarantoolError::NoSuchSession:
+        return "Session %llu does not exist";
+      case TarantoolError::WrongSessionType:
+        return "Session '%s' is not supported";
+      case TarantoolError::PasswordExpired:
+        return "Password expired";
+      case TarantoolError::AuthDelay:
+        return "Too many authentication attempts";
+      case TarantoolError::AuthRequired:
+        return "Authentication required";
+      case TarantoolError::SqlSeqScan:
+        return "Scanning is not allowed for %s";
+      case TarantoolError::NoSuchEvent:
+        return "Unknown event %s";
+      case TarantoolError::BootstrapNotUnanimous:
+        return "Replica %s chose a different bootstrap leader %s";
+      case TarantoolError::CantCheckBootstrapLeader:
+        return "Can't check who replica %s chose its bootstrap leader";
+      case TarantoolError::BootstrapConnectionNotToAll:
+        return "Some replica set members were not specified in box.cfg.replication";
+      case TarantoolError::NilUuid:
+        return "Nil UUID is reserved and can't be used in replication";
+      case TarantoolError::WrongFunctionOptions:
+        return "Wrong function options: %s";
+      case TarantoolError::MissingSystemSpaces:
+        return "Snapshot has no system spaces";
+      case TarantoolError::ClusterNameMismatch:
+        return "Cluster name mismatch: name '%s' provided in config conflicts with the instance "
+               "one '%s'";
+      case TarantoolError::ReplicasetNameMismatch:
+        return "Replicaset name mismatch: name '%s' provided in config conflicts with the "
+               "instance one '%s'";
+      case TarantoolError::InstanceNameDuplicate:
+        return "Duplicate replica name %s, already occupied by %s";
+      case TarantoolError::InstanceNameMismatch:
+        return "Instance name mismatch: name '%s' provided in config conflicts with the instance "
+               "one '%s'";
+      case TarantoolError::SchemaNeedsUpgrade:
+        return "Your schema version is %u.%u.%u while Tarantool %s requires a more recent schema "
+               "version. Please, consider using box.schema.upgrade().";
+      case TarantoolError::SchemaUpgradeInProgress:
+        return "Schema upgrade is already in progress";
+      case TarantoolError::Deprecated:
+        return "%s is deprecated";
+      case TarantoolError::Unconfigured:
+        return "Please call box.cfg{} first";
+      case TarantoolError::CreateDefaultFunc:
+        return "Failed to create field default function '%s': %s";
+      case TarantoolError::DefaultFuncFailed:
+        return "Error calling field default function '%s': %s";
+      case TarantoolError::InvalidDec:
+        return "Invalid decimal: '%s'";
+      case TarantoolError::InAnotherPromote:
+        return "box.ctl.promote() is already running";
+      case TarantoolError::Shutdown:
+        return "Server is shutting down";
+      case TarantoolError::FieldValueOutOfRange:
+        return "The value of field %s exceeds the supported range for type '%s': expected "
+               "[%s..%s], got %s";
+    }
+    return "Unknown";
+  }
+};
+
+static inline const boost::system::error_category& tarantool_error_category()
+{
+  static const TarantoolErrorCategory instance;
+  return instance;
+}
+
 class MessageHeader
 {
 public:
@@ -522,5 +1133,13 @@ MSGPACK_API_VERSION_NAMESPACE(MSGPACK_DEFAULT_API_NS)
   }  // namespace adaptor
 }
 }  // namespace msgpack
+
+namespace boost::system
+{
+template<>
+struct is_error_condition_enum<tntpp::detail::iproto::TarantoolError> : public std::true_type
+{
+};
+}  // namespace boost::system
 
 #endif  // TARANTOOL_CONNECTOR_IPROTO_TYPEDEFS_H
