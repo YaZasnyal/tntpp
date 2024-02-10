@@ -29,12 +29,13 @@ static void simple_loop(benchmark::State& s)
           .get();
   tntpp::box::Box box(conn);
   auto res =
-      conn->eval("return ...", std::vector {1, 2, 3}, boost::asio::use_future).get();
+      conn->eval("ghjghjg ...", std::vector {1, 2, 3}, boost::asio::use_future).get();
   TNTPP_LOG(&logger,
             Info,
             "is_error={}; {}",
             res.is_error(),
-            fmt::join(*res.as<std::optional<std::vector<int>>>(), ", "));
+            res.error_text());
+//            fmt::join(*res.as<std::optional<std::vector<int>>>(), ", "));
   auto res2 = conn->call("help", std::make_tuple(), boost::asio::use_future)
                   .get()
                   .as<std::tuple<std::vector<std::string>>>();

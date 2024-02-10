@@ -53,7 +53,7 @@ CheckOptions:
   - key: 'readability-identifier-naming.ClassCase'
     value: 'CamelCase'
   - key: 'readability-identifier-naming.ClassConstantCase'
-    value: 'lower_case'
+    value: 'CamelCase'
   - key: 'readability-identifier-naming.ClassMemberCase'
     value: 'lower_case'
   - key: 'readability-identifier-naming.ClassMethodCase'

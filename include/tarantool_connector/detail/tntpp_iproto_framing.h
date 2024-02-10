@@ -6,7 +6,9 @@
 #define TARANTOOL_CONNECTOR_TNTPP_IPROTO_FRAMING_H
 
 #include <array>
+#include <cassert>
 #include <optional>
+#include <type_traits>
 #include <utility>
 
 #include <boost/asio/as_tuple.hpp>
@@ -23,18 +25,15 @@
 namespace tntpp::detail
 {
 
-namespace
-{
 template<typename T, typename Enable = void>
 struct is_optional : std::false_type
 {
 };
 
 template<typename T>
-struct is_optional<std::optional<T> > : std::true_type
+struct is_optional<std::optional<T>> : std::true_type
 {
 };
-}  // namespace
 
 /**
  * Read hello message from the tarantool server
@@ -105,6 +104,51 @@ public:
   const FrozenBuffer& body() const { return m_body; }
   bool is_error() const { return m_header.request_type != iproto::RequestType::Ok; }
 
+  operator bool() const { return !is_error(); }
+
+  detail::iproto::MpUint get_error_code() const noexcept
+  {
+    auto req_type = static_cast<detail::iproto::MpUint>(m_header.request_type);
+    // @todo make real error_code
+    if (m_header.request_type >= detail::iproto::RequestType::TypeErrorBegin
+        && m_header.request_type <= detail::iproto::RequestType::TypeErrorEnd)
+    {
+      return static_cast<detail::iproto::MpUint>(m_header.request_type)
+          - static_cast<detail::iproto::MpUint>(detail::iproto::RequestType::TypeErrorBegin);
+    }
+    return 0;
+  }
+
+  [[nodiscard]] std::string error_text() const
+  {
+    assert(is_error());
+    auto object = msgpack::unpack(static_cast<const char*>(body().data()), body().size(), 0);
+    if (object->type != msgpack::type::MAP) {
+      throw msgpack::type_error();
+    }
+
+    for (const auto& kv : object->via.map) {  // NOLINT(*-pro-type-union-access)
+      if (kv.key.type != msgpack::type::POSITIVE_INTEGER) {
+        throw msgpack::type_error();
+      }
+
+      auto key_type = detail::iproto::int_to_field_type(kv.key.via.u64);
+      if (!key_type) {
+        // unknown (does not care)
+        continue;
+      }
+      switch (*key_type) {
+        case detail::iproto::FieldType::Error_24:
+          return kv.val.as<std::string>();
+        default:
+          continue;
+      }
+    }
+
+    // no response found or nil error
+    return "";
+  }
+
   /**
    * Convert raw buffer to the specified type
    *
@@ -119,7 +163,7 @@ public:
       throw msgpack::type_error();
     }
 
-    for (auto& kv : object->via.map) {  // NOLINT(*-pro-type-union-access)
+    for (const auto& kv : object->via.map) {  // NOLINT(*-pro-type-union-access)
       if (kv.key.type != msgpack::type::POSITIVE_INTEGER) {
         throw msgpack::type_error();
       }
@@ -176,7 +220,7 @@ public:
   {
     try {
       return as<T>();
-    } catch (const std::exception& e) {
+    } catch (const std::exception&) {
       ec = error_code(boost::system::errc::protocol_error, boost::system::system_category());
     }
   }
@@ -195,7 +239,7 @@ public:
   {
     try {
       as<T>(v);
-    } catch (const std::exception& e) {
+    } catch (const std::exception&) {
       ec = error_code(boost::system::errc::protocol_error, boost::system::system_category());
     }
   }
@@ -229,6 +273,7 @@ public:
       , m_buffer(default_size)
   {
   }
+  ~IprotoFraming() = default;
   IprotoFraming(const Self&) = delete;
   IprotoFraming(Self&&) = default;
   Self& operator=(const Self&) = delete;
@@ -257,7 +302,6 @@ public:
 
               try {
                 std::size_t offset = 0;
-                msgpack::unpacker unpacker;
                 auto object = msgpack::unpack(
                     static_cast<const char*>(msg_body.data()), msg_body.size(), offset);
                 iproto::MessageHeader header = object->convert();
