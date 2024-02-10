@@ -21,23 +21,34 @@ static void simple_loop(benchmark::State& s)
         ctx.run();
       });
 
-  static tntpp::StdoutLogger logger(tntpp::LogLevel::Fatal);
+  static tntpp::StdoutLogger logger(tntpp::LogLevel::Info);
   auto conn =
       tntpp::Connector::connect(ctx.get_executor(),
                                 tntpp::Config().host("192.168.4.2").port(3301).logger(&logger),
                                 boost::asio::use_future)
           .get();
   tntpp::box::Box box(conn);
-  auto res = box.eval("return ...", std::make_tuple(1, 2, 3), boost::asio::use_future)
-                 .get()
-                 .as<std::tuple<int, int, int>>();
-  auto res2 = box.call("help", std::make_tuple(1, 2, 3), boost::asio::use_future).get();
-  std::cout << static_cast<const char*>(res2.get_raw_body().data()) << "\n";
+  auto res =
+      conn->eval("return ...", std::vector {1, 2, 3}, boost::asio::use_future).get();
+  TNTPP_LOG((&logger),
+            Info,
+            "is_error={}; {}",
+            res.is_error(),
+            fmt::join(*res.as<std::optional<std::vector<int>>>(), ", "));
+  auto res2 = conn->call("help", std::make_tuple(), boost::asio::use_future)
+                  .get()
+                  .as<std::tuple<std::vector<std::string>>>();
+  TNTPP_LOG((&logger), Info, "\n{}", fmt::join(std::get<0>(res2), " "));
+
+  auto res3 = conn->eval("return ...", msgpack::type::nil_t {}, boost::asio::use_future)
+                  .get()
+                  .as<std::optional<std::vector<int>>>();
+
   std::exit(-1);
 
   for (auto _ : s) {
     auto f1 = conn->ping(boost::asio::as_tuple(boost::asio::use_future));
-    box.eval("help", std::vector<int>(), boost::asio::use_future).get();
+    conn->eval("help", std::vector<int>(), boost::asio::use_future).get();
     //    auto f2 = conn->ping(boost::asio::as_tuple(boost::asio::use_future));
     //    auto f3 = conn->ping(boost::asio::as_tuple(boost::asio::use_future));
     //    auto f4 = conn->ping(boost::asio::as_tuple(boost::asio::use_future));

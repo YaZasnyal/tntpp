@@ -6,6 +6,7 @@
 #define TARANTOOL_CONNECTOR_TNTPP_IPROTO_FRAMING_H
 
 #include <array>
+#include <optional>
 #include <utility>
 
 #include <boost/asio/as_tuple.hpp>
@@ -21,6 +22,19 @@
 
 namespace tntpp::detail
 {
+
+namespace
+{
+template<typename T, typename Enable = void>
+struct is_optional : std::false_type
+{
+};
+
+template<typename T>
+struct is_optional<std::optional<T> > : std::true_type
+{
+};
+}  // namespace
 
 /**
  * Read hello message from the tarantool server
@@ -42,6 +56,8 @@ auto read_tarantool_hello(Stream& stream, H&& handler)
             // long lines: first one with version information and the second is
             // with salt for auth
             // https://www.tarantool.io/en/doc/latest/dev_guide/internals/iproto/authentication/
+            //
+            // leaving it uninitialized because it will be rewritten
             std::array<char, 128> buffer;
             auto [ec, count] = co_await boost::asio::async_read(
                 stream,
@@ -88,6 +104,101 @@ public:
   const iproto::MessageHeader& header() const { return m_header; }
   const FrozenBuffer& body() const { return m_body; }
   bool is_error() const { return m_header.request_type != iproto::RequestType::Ok; }
+
+  /**
+   * Convert raw buffer to the specified type
+   *
+   * @tparam T result type
+   * @param v parsed object
+   */
+  template<class T>
+  void as(T& v) const
+  {
+    auto object = msgpack::unpack(static_cast<const char*>(body().data()), body().size(), 0);
+    if (object->type != msgpack::type::MAP) {
+      throw msgpack::type_error();
+    }
+
+    for (auto& kv : object->via.map) {  // NOLINT(*-pro-type-union-access)
+      if (kv.key.type != msgpack::type::POSITIVE_INTEGER) {
+        throw msgpack::type_error();
+      }
+
+      auto key_type = detail::iproto::int_to_field_type(kv.key.via.u64);
+      if (!key_type) {
+        // unknown (does not care)
+        continue;
+      }
+      switch (*key_type) {
+        case detail::iproto::FieldType::Data:
+          kv.val.convert(v);
+          return;
+        default:
+          continue;
+      }
+    }
+
+    // if result type is optional<T> then it is not an error to not have FieldType::Data
+    if constexpr (is_optional<T>()) {
+      v = std::nullopt;
+      return;
+    }
+
+    // no response found
+    throw msgpack::type_error();
+  }
+
+  /**
+   * Convert raw buffer to the specified type
+   *
+   * @tparam T result type
+   * @return parsed object
+   */
+  template<class T>
+  T as() const
+  {
+    T result;
+    as<T>(result);
+    return result;
+  }
+
+  /**
+   * Convert raw buffer to the specified type
+   *
+   * This function catches exceptions and forwards them as an error_code
+   *
+   * @tparam T result type
+   * @param ec error code
+   * @return parsed object
+   */
+  template<class T>
+  T as(error_code& ec) const noexcept
+  {
+    try {
+      return as<T>();
+    } catch (const std::exception& e) {
+      ec = error_code(boost::system::errc::protocol_error, boost::system::system_category());
+    }
+  }
+
+  /**
+   * Convert raw buffer to the specified type
+   *
+   * This function catches exceptions and forwards them as an error_code
+   *
+   * @tparam T result type
+   * @param v result object
+   * @param ec error code
+   */
+  template<class T>
+  void as(T& v, error_code& ec) const noexcept
+  {
+    try {
+      as<T>(v);
+    } catch (const std::exception& e) {
+      ec = error_code(boost::system::errc::protocol_error, boost::system::system_category());
+    }
+  }
 
 private:
   iproto::MessageHeader m_header;
@@ -215,11 +326,11 @@ private:
 
               // read more data
               m_buffer.prepare(bytes);
-              auto [ec, read_bytes] =
-                  co_await boost::asio::async_read(m_next_layer,
-                                                   m_buffer.get_receive_buffer(),
-                                                   boost::asio::transfer_at_least(bytes - m_buffer.ready()),
-                                                   boost::asio::as_tuple(boost::asio::deferred));
+              auto [ec, read_bytes] = co_await boost::asio::async_read(
+                  m_next_layer,
+                  m_buffer.get_receive_buffer(),
+                  boost::asio::transfer_at_least(bytes - m_buffer.ready()),
+                  boost::asio::as_tuple(boost::asio::deferred));
               if (ec) {
                 co_return state.complete(ec, FrozenBuffer {});
               }

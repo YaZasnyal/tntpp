@@ -83,7 +83,7 @@ public:
 #ifndef TNTPP_LOG
 #  define TNTPP_LOG(logger, level, ...)                                                           \
     {                                                                                             \
-      auto l_level__ = LogLevel::level;                                                           \
+      auto l_level__ = ::tntpp::LogLevel::level;                                                  \
       if (logger && logger->max_log_level() >= l_level__) {                                       \
         auto l_out__ = fmt::memory_buffer();                                                      \
         fmt::format_to(std::back_inserter(l_out__), __VA_ARGS__);                                 \

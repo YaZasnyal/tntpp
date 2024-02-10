@@ -26,6 +26,8 @@ namespace tntpp
 class Connector;
 using ConnectorSptr = std::shared_ptr<Connector>;
 
+using IprotoFrame = detail::IprotoFrame;
+
 /**
  * Connector class is a low level primitive for communication with the tarantool
  * instance.
@@ -134,6 +136,26 @@ public:
         init, handler, std::ref(request));
   }
 
+  template<class H>
+  auto send_request(detail::iproto::OperationId id, detail::RequestPacker buffer, H&& handler)
+  {
+    return boost::asio::async_initiate<H, void(error_code, IprotoFrame)>(
+        boost::asio::experimental::co_composed<void(error_code, IprotoFrame)>(
+            [this](
+                auto state, detail::iproto::OperationId id, detail::RequestPacker buffer) -> void
+            {
+              auto [ec, buf] = co_await send_request(
+                  detail::Operation {
+                      .id = id, .data = detail::Data(buffer.str().data(), buffer.str().size())},
+                  boost::asio::as_tuple(boost::asio::deferred));
+
+              co_return state.complete(ec, buf);
+            }),
+        handler,
+        id,
+        std::move(buffer));
+  }
+
   /**
    * Generates new unique within this connection request id
    */
@@ -168,6 +190,67 @@ public:
         handler,
         header.sync,
         std::move(packer));
+  }
+
+  /**
+   * Calls stored procedure
+   *
+   * @tparam H completion handler
+   * @tparam Args procedure arguments type
+   * @param function procedure name
+   * @param args procedure arguments (MP_ARRAY)
+   * @param handler completion handler
+   * @returns CallResult - a struct that holds anything as a result or an error
+   *
+   * Args must be vector of arguments or a tuple. Argument list will be destructured into the named
+   * arguments of the function.
+   *
+   * Example:
+   * function foo(a) ...
+   * call("foo", std::make_tuple(5));
+   *
+   * It may be more convenient to create a struct and specialize serialization function for it.
+   * Look msgpack-cxx for information.
+   */
+  template<class H, class Args>
+  auto call(std::string_view function, Args&& args, H&& handler)
+  {
+    detail::RequestPacker packer;
+    detail::iproto::MessageHeader header;
+    header.sync = generate_id();
+    header.request_type = detail::iproto::RequestType::Call;
+    packer.pack(header);
+    packer.begin_map(2);
+    packer.pack_map_entry(detail::iproto::FieldType::FunctionName, function);
+    packer.pack_map_entry(detail::iproto::FieldType::Tuple, std::forward<decltype(args)>(args));
+    packer.finalize();
+
+    return send_request(header.sync, std::move(packer), handler);
+  }
+
+  /**
+   * Execute lua code in the tarantool instance
+   *
+   * @tparam H completion handler type
+   * @tparam Args list of arguments (MP_ARRAY)
+   * @param expression lua code
+   * @param args arguments
+   * @param handler completion handler
+   */
+  template<class H, class Args>
+  auto eval(std::string_view expression, Args&& args, H&& handler)
+  {
+    detail::RequestPacker packer;
+    detail::iproto::MessageHeader header;
+    header.sync = generate_id();
+    header.request_type = detail::iproto::RequestType::Eval;
+    packer.pack(header);
+    packer.begin_map(2);
+    packer.pack_map_entry(detail::iproto::FieldType::Expr, expression);
+    packer.pack_map_entry(detail::iproto::FieldType::Tuple, std::forward<decltype(args)>(args));
+    packer.finalize();
+
+    return send_request(header.sync, std::move(packer), handler);
   }
 
 private:
@@ -316,4 +399,4 @@ private:
 
 }  // namespace tntpp
 
-#endif // TARANTOOL_CONNECTOR_TARANTOOL_CONNECTOR_H
+#endif  // TARANTOOL_CONNECTOR_TARANTOOL_CONNECTOR_H
