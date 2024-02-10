@@ -12,7 +12,6 @@
 #include <utility>
 
 #include <boost/asio/as_tuple.hpp>
-#include <boost/asio/experimental/co_composed.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/read.hpp>
 #include <boost/endian.hpp>
@@ -48,7 +47,7 @@ template<class Stream, class H>
 auto read_tarantool_hello(Stream& stream, H&& handler)
 {
   return boost::asio::async_initiate<H, void(error_code, std::string)>(
-      boost::asio::experimental::co_composed<void(error_code, std::string)>(
+      TNTPP_CO_COMPOSED<void(error_code, std::string)>(
           [](auto state, Stream& stream) -> void
           {
             // hello message is always 128 bytes long and contains two 64 bytes
@@ -102,23 +101,19 @@ public:
 
   const iproto::MessageHeader& header() const { return m_header; }
   const FrozenBuffer& body() const { return m_body; }
-  bool is_error() const { return m_header.request_type != iproto::RequestType::Ok; }
+  bool is_error() const { return m_header.is_error(); }
 
   operator bool() const { return !is_error(); }
 
   boost::system::error_code get_error_code() const noexcept
   {
-    if (m_header.request_type >= detail::iproto::RequestType::TypeErrorBegin
-        && m_header.request_type <= detail::iproto::RequestType::TypeErrorEnd)
-    {
-      auto code = static_cast<detail::iproto::MpUint>(m_header.request_type)
-          - static_cast<detail::iproto::MpUint>(detail::iproto::RequestType::TypeErrorBegin);
-      return error_code(iproto::int_to_tarantool_error(code), iproto::tarantool_error_category());
+    if (m_header.is_error()) {
+      return m_header.get_error_code();
     }
     return error_code(iproto::TarantoolError::Unknown, iproto::tarantool_error_category());
   }
 
-  [[nodiscard]] std::string error_text() const
+  [[nodiscard]] std::string get_error_string() const
   {
     assert(is_error());
     auto object = msgpack::unpack(static_cast<const char*>(body().data()), body().size(), 0);
@@ -300,7 +295,7 @@ public:
   auto receive_message(H&& handler)
   {
     return boost::asio::async_initiate<H, void(error_code, IprotoFrame)>(
-        boost::asio::experimental::co_composed<void(error_code, IprotoFrame)>(
+        TNTPP_CO_COMPOSED<void(error_code, IprotoFrame)>(
             [this](auto state) -> void
             {
               auto [ec, length] =
@@ -378,7 +373,7 @@ private:
   auto transfer_exactly(std::size_t bytes, H&& handle)
   {
     return boost::asio::async_initiate<H, void(error_code, FrozenBuffer)>(
-        boost::asio::experimental::co_composed<void(error_code, FrozenBuffer)>(
+        TNTPP_CO_COMPOSED<void(error_code, FrozenBuffer)>(
             [this](auto state, std::size_t bytes) -> void
             {
               if (m_buffer.get_ready_buffer().size() >= bytes) {
@@ -407,7 +402,7 @@ private:
   auto read_message_length(H&& handle)
   {
     return boost::asio::async_initiate<H, void(error_code, iproto::SizeType)>(
-        boost::asio::experimental::co_composed<void(error_code, iproto::SizeType)>(
+        TNTPP_CO_COMPOSED<void(error_code, iproto::SizeType)>(
             [this](auto state) -> void
             {
               try {

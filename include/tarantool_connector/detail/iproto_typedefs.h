@@ -114,6 +114,12 @@ RequestType int_to_req_type(MpUint type)
   return RequestType::Unknown;
 }
 
+inline bool is_error_req_type(MpUint type)
+{
+  return type >= static_cast<MpUint>(RequestType::TypeErrorBegin)
+      && type <= static_cast<MpUint>(RequestType::TypeErrorEnd);
+}
+
 enum class FieldType : MpUint
 {
   Version = 0x54,  // Binary protocol version supported by the client (MP_UINT)
@@ -131,10 +137,11 @@ enum class FieldType : MpUint
 
   Tuple = 0x21,  // Tuple, arguments, operations, or authentication pair (MP_ARRAY)
   FunctionName = 0x22,  // Name of the called function. Used in IPROTO_CALL (MP_STR)
+  Username = 0x23,  // Username. Used in IPROTO_AUTH (MP_STR)
   Expr = 0x27,  // Command argument. Used in IPROTO_EVAL (MP_STR)
 };
 
-std::optional<FieldType> int_to_field_type(MpUint type)
+inline std::optional<FieldType> int_to_field_type(MpUint type)
 {
   switch (static_cast<FieldType>(type)) {
     case FieldType::Version:
@@ -148,6 +155,7 @@ std::optional<FieldType> int_to_field_type(MpUint type)
     case FieldType::StreamId:
     case FieldType::Tuple:
     case FieldType::FunctionName:
+    case FieldType::Username:
     case FieldType::Expr:
       return static_cast<FieldType>(type);
   }
@@ -1048,10 +1056,23 @@ static inline const boost::system::error_category& tarantool_error_category()
 class MessageHeader
 {
 public:
-  RequestType request_type {RequestType::Unknown};
+  MpUint request_type {static_cast<MpUint>(RequestType::Unknown)};
   MpUint sync {0};
   MpUint schema_version {0};
   std::optional<MpUint> stream_id {std::nullopt};
+
+  void set_request_type(RequestType req_type) { request_type = static_cast<MpUint>(req_type); }
+  [[nodiscard]] bool is_error() const { return is_error_req_type(request_type); }
+  [[nodiscard]] boost::system::error_code get_error_code() const
+  {
+    if (!is_error()) {
+      return boost::system::error_code {};
+    }
+    const MpUint code = static_cast<detail::iproto::MpUint>(request_type)
+        - static_cast<detail::iproto::MpUint>(detail::iproto::RequestType::TypeErrorBegin);
+    return boost::system::error_code(static_cast<int>(int_to_tarantool_error(code)),
+                                     tarantool_error_category());
+  }
 };
 
 }  // namespace tntpp::detail::iproto
@@ -1085,8 +1106,7 @@ MSGPACK_API_VERSION_NAMESPACE(MSGPACK_DEFAULT_API_NS)
         }
         switch (*field_type) {
           case FieldType::RequestType: {
-            tntpp::detail::iproto::MpUint value = obj.val.convert();
-            v.request_type = tntpp::detail::iproto::int_to_req_type(value);
+            v.request_type = obj.val.convert();
             break;
           }
           case FieldType::Sync: {

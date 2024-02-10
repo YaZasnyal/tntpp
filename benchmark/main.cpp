@@ -21,22 +21,24 @@ static void simple_loop(benchmark::State& s)
         ctx.run();
       });
 
-  static tntpp::StdoutLogger logger(tntpp::LogLevel::Info);
-  auto conn =
-      tntpp::Connector::connect(ctx.get_executor(),
-                                tntpp::Config().host("192.168.4.2").port(3301).logger(&logger),
-                                boost::asio::use_future)
-          .get();
+  static tntpp::StdoutLogger logger(tntpp::LogLevel::Debug);
+  auto conn = tntpp::Connector::connect(ctx.get_executor(),
+                                        tntpp::Config()
+                                            .host("192.168.4.2")
+                                            .port(3301)
+                                            .logger(&logger)
+                                            .credentials("test", "test123"),
+                                        boost::asio::use_future)
+                  .get();
   tntpp::box::Box box(conn);
-  auto res =
-      conn->eval("ghjghjg ...", std::vector {1, 2, 3}, boost::asio::use_future).get();
+  auto res = conn->eval("ghjghjg ...", std::vector {1, 2, 3}, boost::asio::use_future).get();
   TNTPP_LOG(&logger,
             Info,
             "is_error={}; {}; {}",
             res.is_error(),
             res.get_error_code().what(),
-            res.error_text());
-//            fmt::join(*res.as<std::optional<std::vector<int>>>(), ", "));
+            res.get_error_string());
+  //            fmt::join(*res.as<std::optional<std::vector<int>>>(), ", "));
   auto res2 = conn->call("help", std::make_tuple(), boost::asio::use_future)
                   .get()
                   .as<std::tuple<std::vector<std::string>>>();

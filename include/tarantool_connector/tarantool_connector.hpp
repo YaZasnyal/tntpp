@@ -13,11 +13,11 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/deferred.hpp>
 #include <boost/asio/detached.hpp>
-#include <boost/asio/experimental/co_composed.hpp>
 #include <boost/asio/recycling_allocator.hpp>
 #include <boost/asio/redirect_error.hpp>
 
 #include "connection.h"
+#include "detail/tntpp_crypto.h"
 #include "detail/tntpp_op_ping.h"
 #include "detail/tntpp_operation.h"
 #include "detail/tntpp_request.h"
@@ -57,46 +57,6 @@ public:
   }
   Connector& operator=(const Connector&) = delete;
   Connector& operator=(Connector&&) = default;
-
-  /**
-   * Create new connection with specified endpoint
-   *
-   * @tparam H completion handler type
-   * @param exec executor
-   * @param cfg connector options
-   * @param handler completion handler [void(error_code, ConnectorSptr)]
-   *
-   * @note all arguments must live until async operation is finished
-   */
-  template<class H>
-  static auto connect(boost::asio::any_io_executor exec, const Config& cfg, H&& handler)
-  {
-    return boost::asio::async_initiate<H, void(error_code, ConnectorSptr)>(
-        boost::asio::experimental::co_composed<void(error_code, ConnectorSptr)>(
-            [](auto state, boost::asio::any_io_executor exec, Config cfg) -> void
-            {
-              // int answer = co_await get_answer(boost::asio::deferred);
-              auto conn = std::make_shared<detail::Connection>(exec, std::move(cfg));
-              error_code ec {};
-              co_await conn->connect(boost::asio::redirect_error(boost::asio::deferred, ec));
-              if (ec) {
-                co_return state.complete(ec, nullptr);
-              }
-
-              assert(conn != nullptr);
-              // construct Connector and return it
-              ConnectorSptr connector(new Connector(std::move(conn)));
-              boost::asio::co_spawn(
-                  connector->m_state->m_conn->get_strand(),
-                  [state = connector->m_state]() mutable -> boost::asio::awaitable<void>
-                  { co_await Connector::start(std::move(state)); },
-                  boost::asio::detached);
-              co_return state.complete(error_code {}, std::move(connector));
-            }),
-        handler,
-        exec,
-        cfg);
-  }
 
   /**
    * Initiate a request operation.
@@ -142,7 +102,7 @@ public:
   auto send_request(detail::iproto::OperationId id, detail::RequestPacker buffer, H&& handler)
   {
     return boost::asio::async_initiate<H, void(error_code, IprotoFrame)>(
-        boost::asio::experimental::co_composed<void(error_code, IprotoFrame)>(
+        TNTPP_CO_COMPOSED<void(error_code, IprotoFrame)>(
             [this](
                 auto state, detail::iproto::OperationId id, detail::RequestPacker buffer) -> void
             {
@@ -158,6 +118,107 @@ public:
         std::move(buffer));
   }
 
+private:
+  template<class H>
+  auto async_auth(H&& handler)
+  {
+    return boost::asio::async_initiate<H, void(error_code)>(
+        TNTPP_CO_COMPOSED<void(error_code)>(
+            [this](auto state) -> void
+            {
+              const auto& credentials = m_state->m_conn->get_config().credentials();
+              if (!credentials) {
+                co_return state.complete(error_code {});
+              }
+
+              auto scramble =
+                  detail::ScramblePassword(credentials->password, m_state->m_conn->get_salt());
+
+              detail::RequestPacker packer;
+              detail::iproto::MessageHeader header;
+              header.sync = generate_id();
+              header.set_request_type(detail::iproto::RequestType::Auth);
+              packer.pack(header);
+              packer.begin_map(2);
+              packer.pack_map_entry(detail::iproto::FieldType::Username, credentials->username);
+              packer.pack_map_entry(detail::iproto::FieldType::Tuple,
+                                    std::make_tuple("chap-sha1", std::move(scramble)));
+              packer.finalize();
+
+              auto [ec, frame] = co_await send_request(
+                  header.sync, std::move(packer), boost::asio::as_tuple(boost::asio::deferred));
+              if (ec) {
+                TNTPP_LOG(m_state->get_logger(),
+                          Debug,
+                          "error during auth request: {{error='{}'}}",
+                          ec.message());
+                co_return state.complete(ec);
+              }
+              if (frame.is_error()) {
+                TNTPP_LOG(m_state->get_logger(),
+                          Debug,
+                          "error during auth request: {{error_type='{}', error='{}'}}",
+                          frame.get_error_code().what(),
+                          frame.get_error_string());
+                co_return state.complete(frame.get_error_code());
+              }
+
+              co_return state.complete(ec);
+            }),
+        handler);
+  }
+
+public:
+  /**
+   * Create new connection with specified endpoint
+   *
+   * @tparam H completion handler type
+   * @param exec executor
+   * @param cfg connector options
+   * @param handler completion handler [void(error_code, ConnectorSptr)]
+   *
+   * @note all arguments must live until async operation is finished
+   */
+  template<class H>
+  static auto connect(boost::asio::any_io_executor exec, const Config& cfg, H&& handler)
+  {
+    return boost::asio::async_initiate<H, void(error_code, ConnectorSptr)>(
+        TNTPP_CO_COMPOSED<void(error_code, ConnectorSptr)>(
+            [](auto state, boost::asio::any_io_executor exec, Config cfg) -> void
+            {
+              // int answer = co_await get_answer(boost::asio::deferred);
+              auto conn = std::make_shared<detail::Connection>(exec, std::move(cfg));
+              error_code ec {};
+              co_await conn->connect(boost::asio::redirect_error(boost::asio::deferred, ec));
+              if (ec) {
+                co_return state.complete(ec, nullptr);
+              }
+
+              assert(conn != nullptr);
+              // construct Connector and return it
+              ConnectorSptr connector(new Connector(std::move(conn)));
+              boost::asio::co_spawn(
+                  connector->m_state->m_conn->get_strand(),
+                  [state = connector->m_state]() mutable -> boost::asio::awaitable<void>
+                  { co_await Connector::start(std::move(state)); },
+                  boost::asio::detached);
+
+              // auth
+              co_await connector->async_auth(
+                  boost::asio::redirect_error(boost::asio::deferred, ec));
+              if (ec) {
+                TNTPP_LOG(cfg.logger(), Info, "authenticate: {{error='{}'}}", ec.message());
+                co_return state.complete(ec, nullptr);
+              }
+              TNTPP_LOG(connector->m_state->get_logger(), Info, "authenticated successfully");
+
+              co_return state.complete(error_code {}, std::move(connector));
+            }),
+        handler,
+        exec,
+        cfg);
+  }
+
   /**
    * Generates new unique within this connection request id
    */
@@ -166,13 +227,20 @@ public:
     return m_state->m_request_id.fetch_add(1, std::memory_order_relaxed);
   }
 
+  /**
+   * Send ping request
+   *
+   * @tparam H completion handler type
+   * @param handler completion handler
+   * @return error if request is not fulfilled
+   */
   template<class H>
   auto ping(H&& handler)
   {
     detail::RequestPacker packer;
     detail::iproto::MessageHeader header;
     header.sync = generate_id();
-    header.request_type = detail::iproto::RequestType::Ping;
+    header.set_request_type(detail::iproto::RequestType::Ping);
     packer.pack(header);
     packer.pack(detail::PingRequest {});
     packer.finalize();
@@ -206,7 +274,7 @@ public:
     detail::RequestPacker packer;
     detail::iproto::MessageHeader header;
     header.sync = generate_id();
-    header.request_type = detail::iproto::RequestType::Call;
+    header.set_request_type(detail::iproto::RequestType::Call);
     packer.pack(header);
     packer.begin_map(2);
     packer.pack_map_entry(detail::iproto::FieldType::FunctionName, function);
@@ -231,7 +299,7 @@ public:
     detail::RequestPacker packer;
     detail::iproto::MessageHeader header;
     header.sync = generate_id();
-    header.request_type = detail::iproto::RequestType::Eval;
+    header.set_request_type(detail::iproto::RequestType::Eval);
     packer.pack(header);
     packer.begin_map(2);
     packer.pack_map_entry(detail::iproto::FieldType::Expr, expression);
@@ -278,7 +346,6 @@ private:
     std::unordered_map<detail::iproto::OperationId,
                        boost::asio::any_completion_handler<void(error_code, detail::IprotoFrame)>>
         m_requests;
-    // watchers
 
     // Destruction order matters. Connection must stay in the end.
     // @todo async future for async_stop

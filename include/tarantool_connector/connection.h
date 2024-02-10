@@ -59,7 +59,7 @@ public:
   auto connect(H&& handler)
   {
     return boost::asio::async_initiate<H, void(error_code)>(
-        boost::asio::experimental::co_composed<void(error_code)>(
+        TNTPP_CO_COMPOSED<void(error_code)>(
             [this](auto state) -> void
             {
               using tcp = boost::asio::ip::tcp;
@@ -108,7 +108,7 @@ public:
                           m_config.no_delay());
 
                 // @todo add timeout
-                auto salt = co_await read_tarantool_hello(socket, redirect_error(deferred, ec));
+                m_salt = co_await read_tarantool_hello(socket, redirect_error(deferred, ec));
                 if (ec) {
                   TNTPP_LOG(m_config.logger(),
                             Info,
@@ -116,9 +116,8 @@ public:
                             ec.message());
                   continue;
                 }
-                // @todo add auth
 
-                m_stream.clear(); // clear old data after reconnect
+                m_stream.clear();  // clear old data after reconnect
                 co_return state.complete(error_code {});
               }
 
@@ -153,6 +152,8 @@ public:
   [[nodiscard]] const Strand& get_strand() const { return m_strand; }
 
   [[nodiscard]] const Config& get_config() const { return m_config; }
+
+  [[nodiscard]] const std::string& get_salt() const {return m_salt;}
 
 private:
   void init_single_send(detail::Data data)
@@ -211,6 +212,8 @@ private:
 
   bool m_sending {false};  ///< indicates if send operation is in progress
   DBQueue<Data> m_queue;  ///< queue for send buffers
+
+  std::string m_salt;
 };
 
 }  // namespace tntpp::detail

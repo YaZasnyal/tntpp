@@ -48,6 +48,8 @@ public:
   {
     std::string username;
     std::string password;
+
+    operator bool() const { return !username.empty() && !password.empty(); }
   };
   Config& credentials(const std::string& username, const std::string& password)
   {
