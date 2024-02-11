@@ -94,6 +94,7 @@ public:
       , m_body(std::move(body))
   {
   }
+  ~IprotoFrame() = default;
   IprotoFrame(const IprotoFrame&) = default;
   IprotoFrame(IprotoFrame&&) = default;
   IprotoFrame& operator=(const IprotoFrame&) = default;
@@ -113,17 +114,17 @@ public:
     return error_code(iproto::TarantoolError::Unknown, iproto::tarantool_error_category());
   }
 
-  [[nodiscard]] std::string get_error_string() const
+  [[nodiscard]] std::string get_error_string() const noexcept
   {
     assert(is_error());
     auto object = msgpack::unpack(static_cast<const char*>(body().data()), body().size(), 0);
     if (object->type != msgpack::type::MAP) {
-      throw msgpack::type_error();
+      return "";
     }
 
     for (const auto& kv : object->via.map) {  // NOLINT(*-pro-type-union-access)
       if (kv.key.type != msgpack::type::POSITIVE_INTEGER) {
-        throw msgpack::type_error();
+        return "";
       }
 
       auto key_type = detail::iproto::int_to_field_type(kv.key.via.u64);

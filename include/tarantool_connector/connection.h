@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <memory>
+#include <vector>
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/bind_executor.hpp>
@@ -70,7 +71,7 @@ public:
               assert(!socket.is_open());
 
               error_code ec {};
-              tcp::resolver resolver(m_strand);
+              const tcp::resolver resolver(m_strand);
               auto addresses = co_await resolver.async_resolve(
                   m_config.host(), "", redirect_error(deferred, ec));
               if (ec) {
@@ -153,7 +154,7 @@ public:
 
   [[nodiscard]] const Config& get_config() const { return m_config; }
 
-  [[nodiscard]] const std::string& get_salt() const {return m_salt;}
+  [[nodiscard]] const std::string& get_salt() const { return m_salt; }
 
 private:
   void init_single_send(detail::Data data)
@@ -203,8 +204,7 @@ private:
   }
 
   /**
-   * local executor to synchronize all async operations if multi-threaded
-   * runtime is used
+   * local executor to synchronize all async operations if multi-threaded runtime is used
    */
   Strand m_strand;
   Stream m_stream;

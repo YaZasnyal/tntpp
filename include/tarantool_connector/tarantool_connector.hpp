@@ -178,8 +178,6 @@ public:
    * @param exec executor
    * @param cfg connector options
    * @param handler completion handler [void(error_code, ConnectorSptr)]
-   *
-   * @note all arguments must live until async operation is finished
    */
   template<class H>
   static auto connect(boost::asio::any_io_executor exec, const Config& cfg, H&& handler)
@@ -258,12 +256,14 @@ public:
    * @param handler completion handler [void(error_code, IprotoFrame)]
    * @returns CallResult - a struct that holds anything as a result or an error
    *
-   * Args must be vector of arguments or a tuple. Argument list will be destructured into the named
-   * arguments of the function.
+   * Args should be vector of arguments or a tuple. Argument list will be deconstructed into the
+   * named arguments of the function.
    *
    * Example:
+   * @code
    * function foo(a) ...
-   * call("foo", std::make_tuple(5));
+   * call("foo", std::make_tuple(5), boost::asio::use_future).get();
+   * @endcode
    *
    * It may be more convenient to create a struct and specialize serialization function for it.
    * Look msgpack-cxx for information.
