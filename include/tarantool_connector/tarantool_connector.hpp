@@ -255,7 +255,7 @@ public:
    * @tparam Args procedure arguments type
    * @param function procedure name
    * @param args procedure arguments (MP_ARRAY)
-   * @param handler completion handler
+   * @param handler completion handler [void(error_code, IprotoFrame)]
    * @returns CallResult - a struct that holds anything as a result or an error
    *
    * Args must be vector of arguments or a tuple. Argument list will be destructured into the named
@@ -291,7 +291,7 @@ public:
    * @tparam Args list of arguments (MP_ARRAY)
    * @param expression lua code
    * @param args arguments
-   * @param handler completion handler
+   * @param handler completion handler [void(error_code, IprotoFrame)]
    */
   template<class H, class Args>
   auto eval(std::string_view expression, Args&& args, H&& handler)
