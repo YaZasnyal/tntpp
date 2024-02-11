@@ -27,6 +27,7 @@ namespace tntpp
 
 class Connector;
 using ConnectorSptr = std::shared_ptr<Connector>;
+using ConnectorWptr = std::weak_ptr<Connector>;
 
 using IprotoFrame = detail::IprotoFrame;
 
@@ -149,20 +150,21 @@ private:
                   header.sync, std::move(packer), boost::asio::as_tuple(boost::asio::deferred));
               if (ec) {
                 TNTPP_LOG(m_state->get_logger(),
-                          Debug,
+                          Info,
                           "error during auth request: {{error='{}'}}",
                           ec.message());
                 co_return state.complete(ec);
               }
               if (frame.is_error()) {
                 TNTPP_LOG(m_state->get_logger(),
-                          Debug,
+                          Info,
                           "error during auth request: {{error_type='{}', error='{}'}}",
                           frame.get_error_code().what(),
                           frame.get_error_string());
                 co_return state.complete(frame.get_error_code());
               }
 
+              TNTPP_LOG(m_state->get_logger(), Info, "authenticated successfully");
               co_return state.complete(ec);
             }),
         handler);
@@ -186,7 +188,6 @@ public:
         TNTPP_CO_COMPOSED<void(error_code, ConnectorSptr)>(
             [](auto state, boost::asio::any_io_executor exec, Config cfg) -> void
             {
-              // int answer = co_await get_answer(boost::asio::deferred);
               auto conn = std::make_shared<detail::Connection>(exec, std::move(cfg));
               error_code ec {};
               co_await conn->connect(boost::asio::redirect_error(boost::asio::deferred, ec));
@@ -195,22 +196,21 @@ public:
               }
 
               assert(conn != nullptr);
-              // construct Connector and return it
+              // construct Connector
               ConnectorSptr connector(new Connector(std::move(conn)));
               boost::asio::co_spawn(
                   connector->m_state->m_conn->get_strand(),
-                  [state = connector->m_state]() mutable -> boost::asio::awaitable<void>
-                  { co_await Connector::start(std::move(state)); },
+                  [conn = ConnectorWptr(connector),
+                   state = connector->m_state]() mutable -> boost::asio::awaitable<void>
+                  { co_await Connector::start(std::move(conn), std::move(state)); },
                   boost::asio::detached);
 
               // auth
               co_await connector->async_auth(
                   boost::asio::redirect_error(boost::asio::deferred, ec));
               if (ec) {
-                TNTPP_LOG(cfg.logger(), Info, "authenticate: {{error='{}'}}", ec.message());
                 co_return state.complete(ec, nullptr);
               }
-              TNTPP_LOG(connector->m_state->get_logger(), Info, "authenticated successfully");
 
               co_return state.complete(error_code {}, std::move(connector));
             }),
@@ -365,8 +365,11 @@ private:
 
   /**
    * Receive loop
+   *
+   * @todo find out how to remove weak ptr to Connector that is needed to send auth request after
+   * reconnect
    */
-  static boost::asio::awaitable<void> start(InternalSptr state)
+  static boost::asio::awaitable<void> start(ConnectorWptr conn, InternalSptr state)
   {
     /// @todo bind allocator
     TNTPP_LOG(state->get_logger(), Debug, "[receive loop] started");
@@ -388,6 +391,18 @@ private:
                       ec.message());
             continue;  // try again until stopped
           }
+
+          // auth
+          auto conn_shared = conn.lock();
+          if (!conn_shared) {
+            break;
+          }
+          co_await conn_shared->async_auth(
+              boost::asio::redirect_error(boost::asio::use_awaitable, ec));
+          if (ec) {
+            continue;  // try again until stopped
+          }
+
           state->m_s = Internal::State::Connected;
           TNTPP_LOG(state->get_logger(), Debug, "[receive loop] reconnected successfully");
         }
