@@ -11,6 +11,7 @@
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/bind_executor.hpp>
+#include <boost/asio/redirect_error.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/write.hpp>
@@ -71,7 +72,7 @@ public:
               assert(!socket.is_open());
 
               error_code ec {};
-              const tcp::resolver resolver(m_strand);
+              tcp::resolver resolver(m_strand);
               auto addresses = co_await resolver.async_resolve(
                   m_config.host(), "", redirect_error(deferred, ec));
               if (ec) {

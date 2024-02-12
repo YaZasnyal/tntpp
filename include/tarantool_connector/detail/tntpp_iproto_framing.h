@@ -150,8 +150,8 @@ public:
    * @tparam T result type
    * @param v parsed object
    */
-  template<class T>
-  void as(T& v) const
+  template<class ... T>
+  void as(std::tuple<T...>& v) const
   {
     if (is_error()) {
       throw boost::system::system_error(get_error_code());
@@ -182,10 +182,10 @@ public:
     }
 
     // if result type is optional<T> then it is not an error to not have FieldType::Data
-    if constexpr (is_optional<T>()) {
-      v = std::nullopt;
-      return;
-    }
+//    if constexpr (is_optional<T>()) {
+//      v = std::nullopt;
+//      return;
+//    }
 
     // no response found
     throw msgpack::type_error();
@@ -197,11 +197,11 @@ public:
    * @tparam T result type
    * @return parsed object
    */
-  template<class T>
-  T as() const
+  template<class ... T>
+  std::tuple<T...> as() const
   {
-    T result;
-    as<T>(result);
+    std::tuple<T...> result;
+    as<T...>(result);
     return result;
   }
 
@@ -214,16 +214,16 @@ public:
    * @param ec error code
    * @return parsed object
    */
-  template<class T>
-  T as(error_code& ec) const noexcept
+  template<class ... T>
+  std::tuple<T...> as(error_code& ec) const noexcept
   {
     if (is_error()) {
       ec = get_error_code();
-      return;
+      return {};
     }
 
     try {
-      return as<T>();
+      return as<T...>();
     } catch (const boost::system::system_error& e) {
       ec = e.code();
     } catch (const std::exception&) {
@@ -240,8 +240,8 @@ public:
    * @param v result object
    * @param ec error code
    */
-  template<class T>
-  void as(T& v, error_code& ec) const noexcept
+  template<class ... T>
+  void as(std::tuple<T...>& v, error_code& ec) const noexcept
   {
     try {
       if (is_error()) {
@@ -249,7 +249,7 @@ public:
         return;
       }
 
-      as<T>(v);
+      as<T...>(v);
     } catch (const boost::system::system_error& e) {
       ec = e.code();
     } catch (const std::exception&) {

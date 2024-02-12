@@ -22,14 +22,12 @@ static void simple_loop(benchmark::State& s)
       });
 
   static tntpp::StdoutLogger logger(tntpp::LogLevel::Debug);
-  auto conn = tntpp::Connector::connect(ctx.get_executor(),
-                                        tntpp::Config()
-                                            .host("192.168.4.2")
-                                            .port(3301)
-                                            .logger(&logger)
-                                            .credentials("test", "test123"),
-                                        boost::asio::use_future)
-                  .get();
+  auto conn =
+      tntpp::Connector::connect(ctx.get_executor(),
+                                tntpp::Config().host("192.168.4.2").port(3301).logger(&logger),
+                                //.credentials("test", "test123"),
+                                boost::asio::use_future)
+          .get();
   tntpp::box::Box box(conn);
   auto res = conn->eval("ghjghjg ...", std::vector {1, 2, 3}, boost::asio::use_future).get();
   TNTPP_LOG(&logger,
@@ -41,12 +39,14 @@ static void simple_loop(benchmark::State& s)
   //            fmt::join(*res.as<std::optional<std::vector<int>>>(), ", "));
   auto res2 = conn->call("help", std::make_tuple(), boost::asio::use_future)
                   .get()
-                  .as<std::tuple<std::vector<std::string>>>();
+                  .as<std::vector<std::string>>();
   TNTPP_LOG(&logger, Info, "\n{}", fmt::join(std::get<0>(res2), " "));
 
-  auto res3 = conn->eval("return ...", msgpack::type::nil_t {}, boost::asio::use_future)
-                  .get()
-                  .as<std::optional<std::vector<int>>>();
+  auto res3 =
+      conn->eval("return nil, \"qwerty\"", std::make_tuple(), boost::asio::use_future)
+          .get()
+          .as<std::optional<std::vector<int>>, std::string>();
+  TNTPP_LOG(&logger, Info, "has_value={}", std::get<0>(res3).has_value());
 
   conn->ping(boost::asio::use_future).get();
   std::exit(-1);
