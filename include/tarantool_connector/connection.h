@@ -11,8 +11,8 @@
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/bind_executor.hpp>
-#include <boost/asio/redirect_error.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/redirect_error.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/write.hpp>
 
@@ -39,6 +39,9 @@ public:
   using Strand = boost::asio::strand<boost::asio::any_io_executor>;
   using Socket = boost::asio::ip::tcp::socket;
   using Stream = IprotoFraming<Socket>;
+
+  /// The type of the executor associated with the object.
+  using executor_type = Strand;
 
   using Executor = Strand;
 
@@ -135,6 +138,20 @@ public:
   }
 
   template<class H>
+  auto enter_executor(H&& handle)
+  {
+    return boost::asio::async_initiate<H, void()>(
+        TNTPP_CO_COMPOSED<void()>(
+            [this](auto state) -> void
+            {
+              co_await boost::asio::post(
+                  m_strand, boost::asio::bind_executor(m_strand, boost::asio::deferred));
+              co_return state.complete();
+            }),
+        handle);
+  }
+
+  template<class H>
   auto receive_message(H&& handler)
   {
     return m_stream.receive_message(std::forward<decltype(handler)>(handler));
@@ -156,6 +173,12 @@ public:
   [[nodiscard]] const Config& get_config() const { return m_config; }
 
   [[nodiscard]] const std::string& get_salt() const { return m_salt; }
+
+  /**
+   * @brief get_executor obtains the executor object that the stream uses
+   * to run asynchronous operations
+   */
+  executor_type get_executor() const noexcept { return m_strand; }
 
 private:
   void init_single_send(detail::Data data)

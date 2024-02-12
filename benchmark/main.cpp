@@ -43,13 +43,16 @@ static void simple_loop(benchmark::State& s)
   TNTPP_LOG(&logger, Info, "\n{}", fmt::join(std::get<0>(res2), " "));
 
   tntpp::error_code ec {};
-  auto res3 =
-      conn->eval("return nil, \"qwerty\"", std::make_tuple(), boost::asio::use_future)
-          .get()
-          .as<std::optional<std::vector<int>>, std::string>(ec);
+  auto res3 = conn->eval("return nil, \"qwerty\"", std::make_tuple(), boost::asio::use_future)
+                  .get()
+                  .as<std::optional<std::vector<int>>, std::string>(ec);
   TNTPP_LOG(&logger, Info, "has_value={}, error={}", std::get<0>(res3).has_value(), ec.message());
 
   conn->ping(boost::asio::use_future).get();
+  tntpp::box::SpaceVariant space;
+  space = tntpp::detail::iproto::MpUint(512);
+  box.remove(space, std::make_tuple(1), boost::asio::use_future).get();
+
   std::exit(-1);
 
   for (auto _ : s) {

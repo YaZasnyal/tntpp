@@ -45,6 +45,9 @@ using IprotoFrame = detail::IprotoFrame;
 class Connector
 {
 public:
+  /// The type of the executor associated with the object.
+  using executor_type = typename detail::Connection::executor_type;
+
   Connector(const Connector&) = delete;
   Connector(Connector&&) = default;
   ~Connector()
@@ -112,7 +115,7 @@ public:
                       .id = id, .data = detail::Data(buffer.str().data(), buffer.str().size())},
                   boost::asio::as_tuple(boost::asio::deferred));
 
-              co_return state.complete(ec, buf);
+              co_return state.complete(ec, std::move(buf));
             }),
         handler,
         id,
@@ -307,6 +310,24 @@ public:
     packer.finalize();
 
     return send_request(header.sync, std::move(packer), handler);
+  }
+
+  /**
+   * @brief get_executor obtains the executor object that the stream uses
+   * to run asynchronous operations
+   */
+  executor_type get_executor() const noexcept { return m_state->m_conn->get_executor(); }
+
+  /**
+   * Enter into the internal executor if synchronization is required
+   *
+   * @tparam H completion handler type [void()]
+   * @param handle completion handler
+   */
+  template<class H>
+  auto enter_executor(H&& handle)
+  {
+    return m_state->m_conn->enter_executor(handle);
   }
 
 private:

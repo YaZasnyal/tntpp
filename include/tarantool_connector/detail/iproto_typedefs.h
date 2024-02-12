@@ -20,6 +20,12 @@ namespace tntpp::detail::iproto
 
 using MpUint = std::uint64_t;
 
+using SpaceId = MpUint;
+using IndexId = MpUint;
+
+static constexpr SpaceId SPACE_VSPACE = 281;
+static constexpr IndexId SPACE_VINDEX = 289;
+
 using OperationId = MpUint;
 /// IProto message cannot be more that uint32::max() bytes long according to spec
 inline static const unsigned char size_tag = 0xce;
@@ -127,7 +133,10 @@ enum class FieldType : MpUint
   Sync = 0x01,  // Unique request identifier (MP_UINT)
   SchemaVersion = 0x05,  // Version of the database schema (MP_UINT)
   Timestamp = 0x04,  // Time in seconds since the Unix epoch (MP_DOUBLE)
+  SpaceId = 0x10, // Space identifier (MP_UINT)
+  IndexId = 0x11, // Index identifier (MP_UINT)
   RequestType = 0x00,  // Request type or response type (MP_UINT)
+  Key = 0x20, // Array of index keys in the request (MP_ARRAY)
   Data = 0x30,  // Data passed in the transaction. Can be empty. Used in all requests and responses
                 // (MP_OBJECT)
   Error_24,  // IPROTO_ERROR_24 is used in Tarantool versions before 2.4.1 (MP_STR)
@@ -149,7 +158,10 @@ inline std::optional<FieldType> int_to_field_type(MpUint type)
     case FieldType::Sync:
     case FieldType::SchemaVersion:
     case FieldType::Timestamp:
+    case FieldType::SpaceId:
+    case FieldType::IndexId:
     case FieldType::RequestType:
+    case FieldType::Key:
     case FieldType::Data:
     case FieldType::Error_24:
     case FieldType::StreamId:

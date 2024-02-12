@@ -150,7 +150,7 @@ public:
    * @tparam T result type
    * @param v parsed object
    */
-  template<class ... T>
+  template<class... T>
   void as(std::tuple<T...>& v) const
   {
     if (is_error()) {
@@ -181,13 +181,8 @@ public:
       }
     }
 
-    // if result type is optional<T> then it is not an error to not have FieldType::Data
-//    if constexpr (is_optional<T>()) {
-//      v = std::nullopt;
-//      return;
-//    }
-
     // no response found
+    assert(false && "data is not present in the response message");
     throw msgpack::type_error();
   }
 
@@ -197,7 +192,7 @@ public:
    * @tparam T result types (must be default constructible)
    * @return parsed object
    */
-  template<class ... T>
+  template<class... T>
   std::tuple<T...> as() const
   {
     std::tuple<T...> result;
@@ -214,7 +209,7 @@ public:
    * @param ec error code
    * @return parsed object
    */
-  template<class ... T>
+  template<class... T>
   std::tuple<T...> as(error_code& ec) const noexcept
   {
     if (is_error()) {
@@ -242,7 +237,7 @@ public:
    * @param v result object
    * @param ec error code
    */
-  template<class ... T>
+  template<class... T>
   void as(std::tuple<T...>& v, error_code& ec) const noexcept
   {
     try {
@@ -250,7 +245,6 @@ public:
         ec = get_error_code();
         return;
       }
-
       as<T...>(v);
     } catch (const boost::system::system_error& e) {
       ec = e.code();
