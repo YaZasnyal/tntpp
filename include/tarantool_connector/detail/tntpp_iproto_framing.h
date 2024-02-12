@@ -194,7 +194,7 @@ public:
   /**
    * Convert raw buffer to the specified type
    *
-   * @tparam T result type
+   * @tparam T result types (must be default constructible)
    * @return parsed object
    */
   template<class ... T>
@@ -210,7 +210,7 @@ public:
    *
    * This function catches exceptions and forwards them as an error_code
    *
-   * @tparam T result type
+   * @tparam T result types (must be default constructible)
    * @param ec error code
    * @return parsed object
    */
@@ -229,6 +229,8 @@ public:
     } catch (const std::exception&) {
       ec = error_code(boost::system::errc::protocol_error, boost::system::system_category());
     }
+
+    return {};
   }
 
   /**
@@ -236,7 +238,7 @@ public:
    *
    * This function catches exceptions and forwards them as an error_code
    *
-   * @tparam T result type
+   * @tparam T result types (must be default constructible)
    * @param v result object
    * @param ec error code
    */
