@@ -42,6 +42,10 @@ class Box
                 co_await m_state->m_conn->enter_executor(boost::asio::deferred);
               }
               // @todo implement
+              // look for space id in the map
+              // if not present send ping and compare schema_version
+              // if schema version has changes -> refetch schema and look for id again
+
               co_return state.complete(error_code {}, 0);
             }),
         handle,

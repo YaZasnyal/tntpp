@@ -28,7 +28,6 @@ static void simple_loop(benchmark::State& s)
                                 //.credentials("test", "test123"),
                                 boost::asio::use_future)
           .get();
-  tntpp::box::Box box(conn);
   auto res = conn->eval("ghjghjg ...", std::vector {1, 2, 3}, boost::asio::use_future).get();
   TNTPP_LOG(&logger,
             Info,
@@ -49,6 +48,27 @@ static void simple_loop(benchmark::State& s)
   TNTPP_LOG(&logger, Info, "has_value={}, error={}", std::get<0>(res3).has_value(), ec.message());
 
   conn->ping(boost::asio::use_future).get();
+
+  // check box
+  tntpp::box::Box box(conn);
+
+  auto create_res = conn->eval(
+          R"--(
+bands = box.schema.space.create('bands',
+    {id=512,
+     if_not_exists=true,
+     format={
+         { name = 'id', type = 'unsigned' },
+         { name = 'band_name', type = 'string' },
+         { name = 'year', type = 'unsigned' }
+     }
+});
+)--",
+          std::make_tuple(),
+          boost::asio::use_future)
+      .get().as<std::string>();
+  TNTPP_LOG(&logger, Info, "error={}", std::get<0>(create_res));
+
   tntpp::box::SpaceVariant space;
   space = tntpp::detail::iproto::MpUint(512);
   box.remove(space, std::make_tuple(1), boost::asio::use_future).get();
