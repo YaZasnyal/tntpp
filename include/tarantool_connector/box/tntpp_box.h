@@ -40,13 +40,30 @@ public:
   ValueType value;
 };
 
+/**
+ * Strong typedef pattern that holds either MpUint or string_view as a space identifier
+ *
+ * @code
+ * auto space = tntpp::box::Space(512);
+ * auto space = tntpp::box::Space("my_space");
+ * @endcode
+ */
 class Space : public SpaceVariant
 {
+public:
   using SpaceVariant::SpaceVariant;
 };
 
+/**
+ * Strong typedef pattern that holds either MpUint or string_view as a index identifier
+ * @code
+ * auto index = tntpp::box::Index(512);
+ * auto index = tntpp::box::Index("secondary_index");
+ * @endcode
+ */
 class Index : public SpaceVariant
 {
+public:
   using SpaceVariant::SpaceVariant;
 };
 
@@ -67,7 +84,10 @@ class Box
               if (!m_state->m_conn->get_executor().running_in_this_thread()) {
                 co_await m_state->m_conn->enter_executor(boost::asio::deferred);
               }
-              // @todo implement
+              if(m_state->m_schema_version != m_state->m_conn->get_schema_version())
+              {
+                // @todo refetch
+              }
               // look for space id in the map
               // if schema_version mismatch -> refetch schema first
 
@@ -106,9 +126,9 @@ public:
   {
   }
   Box(const Box&) = delete;
-  Box(Box&&) = delete;
+  Box(Box&&) = default;
   Box& operator=(const Box&) = delete;
-  Box& operator=(Box&&) = delete;
+  Box& operator=(Box&&) = default;
   ~Box() = default;
 
   // select
@@ -301,7 +321,8 @@ private:
 
   struct BoxInternal
   {
-    ConnectorSptr m_conn;
+    ConnectorSptr m_conn {nullptr};
+    detail::iproto::MpUint m_schema_version {0};
     // async lock
     // space and index map
   };
