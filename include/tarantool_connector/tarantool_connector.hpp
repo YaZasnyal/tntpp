@@ -312,6 +312,11 @@ public:
     return send_request(header.sync, std::move(packer), handler);
   }
 
+  detail::iproto::MpUint get_schema_version() const
+  {
+    return m_state->m_schema_version;
+  }
+
   /**
    * @brief get_executor obtains the executor object that the stream uses
    * to run asynchronous operations
@@ -363,6 +368,7 @@ private:
     };
     State m_s {State::Connected};
 
+    detail::iproto::MpUint m_schema_version {0};
     std::atomic<detail::iproto::OperationId> m_request_id {0};
     std::unordered_map<detail::iproto::OperationId,
                        boost::asio::any_completion_handler<void(error_code, detail::IprotoFrame)>>
@@ -439,6 +445,7 @@ private:
           state->reset();
           continue;
         }
+        state->m_schema_version = message.header().schema_version;
 
         auto it = state->m_requests.extract(message.header().sync);
         if (!it) {

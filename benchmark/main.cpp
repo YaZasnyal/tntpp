@@ -69,9 +69,8 @@ bands = box.schema.space.create('bands',
       .get().as<std::string>();
   TNTPP_LOG(&logger, Info, "error={}", std::get<0>(create_res));
 
-  tntpp::box::SpaceVariant space;
-  space = tntpp::detail::iproto::MpUint(512);
-  box.remove(space, std::make_tuple(1), boost::asio::use_future).get();
+  box.remove(tntpp::box::Space(512), std::make_tuple(1), boost::asio::use_future).get();
+  box.remove(tntpp::box::Space("bands"), std::make_tuple(1), boost::asio::use_future).get();
 
   std::exit(-1);
 

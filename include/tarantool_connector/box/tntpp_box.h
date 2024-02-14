@@ -10,7 +10,6 @@
 
 #include <boost/asio/as_tuple.hpp>
 #include <boost/asio/deferred.hpp>
-#include <boost/serialization/strong_typedef.hpp>
 
 #include "tarantool_connector/detail/iproto_typedefs.h"
 #include "tarantool_connector/detail/tntpp_request.h"
@@ -19,9 +18,37 @@
 namespace tntpp::box
 {
 
-using SpaceIndexVariant = std::variant<std::string_view, detail::iproto::MpUint>;
-BOOST_STRONG_TYPEDEF(SpaceIndexVariant, SpaceVariant);
-BOOST_STRONG_TYPEDEF(SpaceIndexVariant, IndexVariant);
+class SpaceVariant
+{
+public:
+  using ValueType = std::variant<std::string_view, detail::iproto::MpUint>;
+
+  explicit SpaceVariant(detail::iproto::MpUint val)
+      : value(val)
+  {
+  }
+  explicit SpaceVariant(std::string_view val)
+      : value(val)
+  {
+  }
+  ~SpaceVariant() = default;
+  SpaceVariant(const SpaceVariant&) = default;
+  SpaceVariant(SpaceVariant&&) = default;
+  SpaceVariant& operator=(const SpaceVariant&) = default;
+  SpaceVariant& operator=(SpaceVariant&&) = default;
+
+  ValueType value;
+};
+
+class Space : public SpaceVariant
+{
+  using SpaceVariant::SpaceVariant;
+};
+
+class Index : public SpaceVariant
+{
+  using SpaceVariant::SpaceVariant;
+};
 
 class Box
 {
@@ -32,10 +59,9 @@ class Box
         TNTPP_CO_COMPOSED<void(error_code, detail::iproto::SpaceId)>(
             [this](auto state, SpaceVariant space) -> void
             {
-              const auto& space_variant = static_cast<const SpaceIndexVariant&>(space);
-              if (std::holds_alternative<detail::iproto::SpaceId>(space_variant)) {
+              if (std::holds_alternative<detail::iproto::SpaceId>(space.value)) {
                 co_return state.complete(error_code {},
-                                         std::get<detail::iproto::SpaceId>(space_variant));
+                                         std::get<detail::iproto::SpaceId>(space.value));
               }
 
               if (!m_state->m_conn->get_executor().running_in_this_thread()) {
@@ -43,8 +69,7 @@ class Box
               }
               // @todo implement
               // look for space id in the map
-              // if not present send ping and compare schema_version
-              // if schema version has changes -> refetch schema and look for id again
+              // if schema_version mismatch -> refetch schema first
 
               co_return state.complete(error_code {}, 0);
             }),
@@ -53,16 +78,16 @@ class Box
   }
 
   template<class H>
-  auto get_index_id(IndexVariant index, H&& handle)
+  auto get_index_id(Index index, H&& handle)
   {
     return boost::asio::async_initiate<H, void(error_code, detail::iproto::IndexId)>(
         TNTPP_CO_COMPOSED<void(error_code, detail::iproto::IndexId)>(
             [this](auto state, SpaceVariant index) -> void
             {
-              const auto& index_variant = static_cast<const SpaceIndexVariant&>(index);
-              if (std::holds_alternative<detail::iproto::IndexId>(index_variant)) {
+              // no need to refetch schema here because indexes are fetched with spaces
+              if (std::holds_alternative<detail::iproto::IndexId>(index.value)) {
                 co_return state.complete(error_code {},
-                                         std::get<detail::iproto::IndexId>(index_variant));
+                                         std::get<detail::iproto::IndexId>(index.value));
               }
 
               if (!m_state->m_conn->get_executor().running_in_this_thread()) {
@@ -147,7 +172,7 @@ public:
    * @return removed tuple
    */
   template<class T, class H>
-  auto remove(SpaceVariant space, T&& key, H&& handle)
+  auto remove(Space space, T&& key, H&& handle)
   {
     detail::RequestPacker packer;
     detail::iproto::MessageHeader header;
@@ -161,7 +186,7 @@ public:
         TNTPP_CO_COMPOSED<void(error_code, IprotoFrame)>(
             [this](auto state,
                    detail::iproto::MpUint sync,
-                   SpaceVariant space,
+                   Space space,
                    detail::RequestPacker packer) -> void
             {
               auto [ec, space_index] =
@@ -198,7 +223,7 @@ public:
    * @return removed tuple
    */
   template<class T, class H>
-  auto remove(SpaceVariant space, SpaceVariant index, T&& key, H&& handle)
+  auto remove(Space space, Space index, T&& key, H&& handle)
   {
     detail::RequestPacker packer;
     detail::iproto::MessageHeader header;
@@ -212,8 +237,8 @@ public:
         TNTPP_CO_COMPOSED<void(error_code, IprotoFrame)>(
             [this](auto state,
                    detail::iproto::MpUint sync,
-                   SpaceVariant space,
-                   SpaceVariant index,
+                   Space space,
+                   Space index,
                    detail::RequestPacker packer) -> void
             {
               auto [ec, space_index] =
