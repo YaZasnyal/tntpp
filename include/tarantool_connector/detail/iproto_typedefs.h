@@ -135,6 +135,9 @@ enum class FieldType : MpUint
   Timestamp = 0x04,  // Time in seconds since the Unix epoch (MP_DOUBLE)
   SpaceId = 0x10, // Space identifier (MP_UINT)
   IndexId = 0x11, // Index identifier (MP_UINT)
+  Limit = 0x12, // Maximum number of tuples in the space (MP_UINT)
+  Offset = 0x13, // Number of tuples to skip in the select (MP_UINT)
+  Iterator = 0x14, // Iterator type(MP_UINT)
   RequestType = 0x00,  // Request type or response type (MP_UINT)
   Key = 0x20, // Array of index keys in the request (MP_ARRAY)
   Data = 0x30,  // Data passed in the transaction. Can be empty. Used in all requests and responses
@@ -148,6 +151,9 @@ enum class FieldType : MpUint
   FunctionName = 0x22,  // Name of the called function. Used in IPROTO_CALL (MP_STR)
   Username = 0x23,  // Username. Used in IPROTO_AUTH (MP_STR)
   Expr = 0x27,  // Command argument. Used in IPROTO_EVAL (MP_STR)
+  AfterPosition = 0x2e, // The position of a tuple after which space_object:select() starts the search (MP_STR)
+  AfterTuple = 0x2f, // A tuple after which space_object:select() starts the search (MP_ARRAY)
+  FetchPosition = 0x1f, // If true, space_object:select() returns the position of the last selected tuple
 };
 
 inline std::optional<FieldType> int_to_field_type(MpUint type)
@@ -160,6 +166,9 @@ inline std::optional<FieldType> int_to_field_type(MpUint type)
     case FieldType::Timestamp:
     case FieldType::SpaceId:
     case FieldType::IndexId:
+    case FieldType::Limit:
+    case FieldType::Offset:
+    case FieldType::Iterator:
     case FieldType::RequestType:
     case FieldType::Key:
     case FieldType::Data:
@@ -169,6 +178,9 @@ inline std::optional<FieldType> int_to_field_type(MpUint type)
     case FieldType::FunctionName:
     case FieldType::Username:
     case FieldType::Expr:
+    case FieldType::AfterPosition:
+    case FieldType::AfterTuple:
+    case FieldType::FetchPosition:
       return static_cast<FieldType>(type);
   }
   return std::nullopt;

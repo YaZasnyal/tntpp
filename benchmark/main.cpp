@@ -70,12 +70,19 @@ bands = box.schema.space.create('bands',
                         .as<std::string>();
   TNTPP_LOG(&logger, Info, "error={}", std::get<0>(create_res));
 
-  auto insert_res = box.replace(
-         tntpp::box::Space(512), std::make_tuple(10, "Test Band", 2023), boost::asio::use_future)
-      .get();
+  auto insert_res = box.replace(tntpp::box::Space(512),
+                                std::make_tuple(10, "Test Band", 2023),
+                                boost::asio::use_future)
+                        .get();
   box.replace(
          tntpp::box::Space(512), std::make_tuple(10, "Test Band", 2024), boost::asio::use_future)
       .get();
+
+  box.select(tntpp::box::Space(512), 10, boost::asio::use_future);
+  
+  auto builder = box.get_select_builder(tntpp::box::Space(512));
+  builder.key(10).iterator(tntpp::box::SelectIterator::GT).limit(3);
+  box.select(std::move(builder), boost::asio::use_future);
   // box.remove(tntpp::box::Space(512), std::make_tuple(1), boost::asio::use_future).get();
   //  box.remove(tntpp::box::Space("bands"), std::make_tuple(1), boost::asio::use_future).get();
 

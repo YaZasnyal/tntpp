@@ -18,11 +18,14 @@
 namespace tntpp::box
 {
 
+class Box;
+
 class SpaceVariant
 {
 public:
-  using ValueType = std::variant<std::string_view, detail::iproto::MpUint>;
+  using ValueType = std::variant<std::monostate, std::string_view, detail::iproto::MpUint>;
 
+  SpaceVariant() = default;
   explicit SpaceVariant(detail::iproto::MpUint val)
       : value(val)
   {
@@ -37,7 +40,7 @@ public:
   SpaceVariant& operator=(const SpaceVariant&) = default;
   SpaceVariant& operator=(SpaceVariant&&) = default;
 
-  ValueType value;
+  ValueType value {std::monostate};
 };
 
 /**
@@ -67,6 +70,106 @@ public:
   using SpaceVariant::SpaceVariant;
 };
 
+enum class SelectIterator : detail::iproto::MpUint
+{
+  EQ = 0,
+  REQ,
+  ALL,
+  LT,
+  TE,
+  GE,
+  GT,
+  BITS_ALL_SET,
+  BITS_ANY_SET,
+  BITS_ALL_NOT_SET,
+  OVERLAPS,
+  NEIGHBOR,
+};
+
+/**
+ * SelectBuilder allows to create any select statement
+ *
+ * Use Box::get_select_builder to create a new builder
+ *
+ * @warning each method MUST NOT be called more than once
+ */
+class SelectBuilder
+{
+public:
+  SelectBuilder(Space space, detail::iproto::MpUint request_id)
+      : m_space(space)
+  {
+    // pack header
+    // save map length byte addr
+  }
+  SelectBuilder(const SelectBuilder&) = delete;
+  SelectBuilder(SelectBuilder&&) = default;
+  SelectBuilder& operator=(const SelectBuilder&) = delete;
+  SelectBuilder& operator=(SelectBuilder&&) = default;
+
+  SelectBuilder& index(Index index) noexcept
+  {
+    m_index = index;
+    return *this;
+  }
+
+  SelectBuilder& limit(detail::iproto::MpUint value)
+  {
+    packer.pack_map_entry(detail::iproto::FieldType::Limit, value);
+    return *this;
+  }
+
+  SelectBuilder& offset(detail::iproto::MpUint value)
+  {
+    packer.pack_map_entry(detail::iproto::FieldType::Offset, value);
+    return *this;
+  }
+
+  SelectBuilder& iterator(SelectIterator it)
+  {
+    packer.pack_map_entry(detail::iproto::FieldType::Iterator,
+                          static_cast<detail::iproto::MpUint>(it));
+    return *this;
+  }
+
+  template<class K>
+  SelectBuilder& key(K&& key)
+  {
+    packer.pack_map_entry(detail::iproto::FieldType::Key, std::forward<decltype(key)>(key));
+    return *this;
+  }
+
+  SelectBuilder& after_position(std::string pos)
+  {
+    packer.pack_map_entry(detail::iproto::FieldType::AfterPosition, pos);
+    return *this;
+  }
+
+  template<class K>
+  SelectBuilder& after_tuple(K&& pos)
+  {
+    packer.pack_map_entry(detail::iproto::FieldType::AfterTuple, std::forward<decltype(pos)>(pos));
+    return *this;
+  }
+
+  SelectBuilder& fetch_position(bool val)
+  {
+    packer.pack_map_entry(detail::iproto::FieldType::FetchPosition, val);
+    return *this;
+  }
+
+private:
+  friend class Box;
+
+  Space m_space;
+  Index m_index;
+  detail::RequestPacker packer;
+};
+
+struct SelectResult
+{
+};
+
 class Box
 {
   template<class H>
@@ -76,6 +179,11 @@ class Box
         TNTPP_CO_COMPOSED<void(error_code, detail::iproto::SpaceId)>(
             [this](auto state, SpaceVariant space) -> void
             {
+              if (std::holds_alternative<std::monostate>(space.value)) {
+                co_return state.complete(error_code {boost::system::errc::invalid_argument,
+                                                     boost::system::system_category()},
+                                         {});
+              }
               if (std::holds_alternative<detail::iproto::SpaceId>(space.value)) {
                 co_return state.complete(error_code {},
                                          std::get<detail::iproto::SpaceId>(space.value));
@@ -103,6 +211,11 @@ class Box
         TNTPP_CO_COMPOSED<void(error_code, detail::iproto::IndexId)>(
             [this](auto state, SpaceVariant index) -> void
             {
+              if (std::holds_alternative<std::monostate>(space.value)) {
+                co_return state.complete(error_code {boost::system::errc::invalid_argument,
+                                                     boost::system::system_category()},
+                                         {});
+              }
               // no need to refetch schema here because indexes are fetched with spaces
               if (std::holds_alternative<detail::iproto::IndexId>(index.value)) {
                 co_return state.complete(error_code {},
@@ -131,6 +244,36 @@ public:
   ~Box() = default;
 
   // select
+  template<class K, class H>
+  auto select(Space space, K&& key, H&& handle)
+  {
+  }
+
+  // template<class K, class H>
+  // auto select(Space space, K&& key, SelectOptions o, H&& handle)
+  // {
+  // }
+
+  template<class K, class H>
+  auto select(Space space, Index index, K&& key, H&& handle)
+  {
+  }
+
+  template<class H>
+  auto select(SelectBuilder&& builder, H&& handle)
+  {
+    // fetch
+  }
+
+  SelectBuilder get_select_builder(Space space)
+  {
+    return SelectBuilder(space, m_state->m_conn->generate_id());
+  }
+
+  // template<class K, class H>
+  // auto select(Space space, Index index, K&& key, SelectOptions o, H&& handle)
+  // {
+  // }
 
   /**
    * Insert new tuple into the space
