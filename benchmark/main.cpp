@@ -53,7 +53,7 @@ static void simple_loop(benchmark::State& s)
   tntpp::box::Box box(conn);
 
   auto create_res = conn->eval(
-          R"--(
+                            R"--(
 bands = box.schema.space.create('bands',
     {id=512,
      if_not_exists=true,
@@ -64,13 +64,20 @@ bands = box.schema.space.create('bands',
      }
 });
 )--",
-          std::make_tuple(),
-          boost::asio::use_future)
-      .get().as<std::string>();
+                            std::make_tuple(),
+                            boost::asio::use_future)
+                        .get()
+                        .as<std::string>();
   TNTPP_LOG(&logger, Info, "error={}", std::get<0>(create_res));
 
-  box.remove(tntpp::box::Space(512), std::make_tuple(1), boost::asio::use_future).get();
-  box.remove(tntpp::box::Space("bands"), std::make_tuple(1), boost::asio::use_future).get();
+  auto insert_res = box.replace(
+         tntpp::box::Space(512), std::make_tuple(10, "Test Band", 2023), boost::asio::use_future)
+      .get();
+  box.replace(
+         tntpp::box::Space(512), std::make_tuple(10, "Test Band", 2024), boost::asio::use_future)
+      .get();
+  // box.remove(tntpp::box::Space(512), std::make_tuple(1), boost::asio::use_future).get();
+  //  box.remove(tntpp::box::Space("bands"), std::make_tuple(1), boost::asio::use_future).get();
 
   std::exit(-1);
 

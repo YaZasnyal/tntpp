@@ -26,7 +26,8 @@
       "hidden": true,
       "inherits": "cmake-pedantic",
       "cacheVariables": {
-        "tarantool_connector_DEVELOPER_MODE": "ON"
+        "tarantool_connector_DEVELOPER_MODE": "ON",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
     },
     {

@@ -84,8 +84,7 @@ class Box
               if (!m_state->m_conn->get_executor().running_in_this_thread()) {
                 co_await m_state->m_conn->enter_executor(boost::asio::deferred);
               }
-              if(m_state->m_schema_version != m_state->m_conn->get_schema_version())
-              {
+              if (m_state->m_schema_version != m_state->m_conn->get_schema_version()) {
                 // @todo refetch
               }
               // look for space id in the map
@@ -144,19 +143,43 @@ public:
    * @return the inserted tuple
    */
   template<class T, class H>
-  auto insert(SpaceVariant space, T&& tuple, H&& handle)
+  auto insert(Space space, T&& tuple, H&& handle)
   {
+    detail::RequestPacker packer;
+    detail::iproto::MessageHeader header;
+    header.sync = m_state->m_conn->generate_id();
+    header.set_request_type(detail::iproto::RequestType::Insert);
+    packer.pack(header);
+    packer.begin_map(2);
+    packer.pack_map_entry(detail::iproto::FieldType::Tuple, std::forward<decltype(tuple)>(tuple));
+
     return boost::asio::async_initiate<H, void(error_code, IprotoFrame)>(
         TNTPP_CO_COMPOSED<void(error_code, IprotoFrame)>(
-            [this](auto state) -> void
+            [this](auto state,
+                   detail::iproto::MpUint sync,
+                   Space space,
+                   detail::RequestPacker packer) -> void
             {
-              // @todo implement
+              auto [ec, space_index] =
+                  co_await get_space_index(space, boost::asio::as_tuple(boost::asio::deferred));
+              if (ec) {
+                // @todo log error
+                co_return state.complete(ec, IprotoFrame {});
+              }
+              packer.pack_map_entry(detail::iproto::FieldType::SpaceId, space_index);
+              packer.finalize();
+
+              auto res = co_await m_state->m_conn->send_request(
+                  sync, std::move(packer), boost::asio::redirect_error(boost::asio::deferred, ec));
+              co_return state.complete(ec, std::move(res));
             }),
-        handle);
+        handle,
+        header.sync,
+        space,
+        std::move(packer));
   }
 
   // upsert
-  // replace
   // update
 
   /**
@@ -170,15 +193,40 @@ public:
    * @return the inserted tuple
    */
   template<class T, class H>
-  auto replace(SpaceVariant space, T&& tuple, H&& handle)
+  auto replace(Space space, T&& tuple, H&& handle)
   {
+    detail::RequestPacker packer;
+    detail::iproto::MessageHeader header;
+    header.sync = m_state->m_conn->generate_id();
+    header.set_request_type(detail::iproto::RequestType::Replace);
+    packer.pack(header);
+    packer.begin_map(2);
+    packer.pack_map_entry(detail::iproto::FieldType::Tuple, std::forward<decltype(tuple)>(tuple));
+
     return boost::asio::async_initiate<H, void(error_code, IprotoFrame)>(
         TNTPP_CO_COMPOSED<void(error_code, IprotoFrame)>(
-            [this](auto state) -> void
+            [this](auto state,
+                   detail::iproto::MpUint sync,
+                   Space space,
+                   detail::RequestPacker packer) -> void
             {
-              // @todo implement
+              auto [ec, space_index] =
+                  co_await get_space_index(space, boost::asio::as_tuple(boost::asio::deferred));
+              if (ec) {
+                // @todo log error
+                co_return state.complete(ec, IprotoFrame {});
+              }
+              packer.pack_map_entry(detail::iproto::FieldType::SpaceId, space_index);
+              packer.finalize();
+
+              auto res = co_await m_state->m_conn->send_request(
+                  sync, std::move(packer), boost::asio::redirect_error(boost::asio::deferred, ec));
+              co_return state.complete(ec, std::move(res));
             }),
-        handle);
+        handle,
+        header.sync,
+        space,
+        std::move(packer));
   }
 
   /**
@@ -264,7 +312,7 @@ public:
               auto [ec, space_index] =
                   co_await get_space_index(space, boost::asio::as_tuple(boost::asio::deferred));
               if (ec) {
-                // log error
+                // @todo log error
                 co_return state.complete(ec, IprotoFrame {});
               }
               auto index_index = co_await get_index_id(
