@@ -40,7 +40,7 @@ public:
   SpaceVariant& operator=(const SpaceVariant&) = default;
   SpaceVariant& operator=(SpaceVariant&&) = default;
 
-  ValueType value {std::monostate};
+  ValueType value {std::monostate{}};
 };
 
 /**
@@ -86,6 +86,21 @@ enum class SelectIterator : detail::iproto::MpUint
   NEIGHBOR,
 };
 
+class SelectBuilder;
+
+class SelectRequest
+{
+protected:
+  SelectRequest() = default;
+  friend class SelectBuilder;
+  friend class Box;
+  
+  detail::iproto::MpUint m_sync;
+  Space m_space;
+  Index m_index;
+  detail::RequestPacker packer;
+};
+
 /**
  * SelectBuilder allows to create any select statement
  *
@@ -97,10 +112,27 @@ class SelectBuilder
 {
 public:
   SelectBuilder(Space space, detail::iproto::MpUint request_id)
-      : m_space(space)
   {
-    // pack header
-    // save map length byte addr
+    m_req.m_sync = request_id;
+    m_req.m_space = space;
+
+    detail::iproto::MessageHeader header;
+    header.sync = request_id;
+    header.set_request_type(detail::iproto::RequestType::Select);
+    m_req.packer.pack(header);
+    m_req.packer.begin_map();
+  }
+  SelectBuilder(Space space, Index index, detail::iproto::MpUint request_id)
+  {
+    m_req.m_sync = request_id;
+    m_req.m_space = space;
+    m_req.m_index = index;
+
+    detail::iproto::MessageHeader header;
+    header.sync = request_id;
+    header.set_request_type(detail::iproto::RequestType::Select);
+    m_req.packer.pack(header);
+    m_req.packer.begin_map();
   }
   SelectBuilder(const SelectBuilder&) = delete;
   SelectBuilder(SelectBuilder&&) = default;
@@ -109,25 +141,25 @@ public:
 
   SelectBuilder& index(Index index) noexcept
   {
-    m_index = index;
+    m_req.m_index = index;
     return *this;
   }
 
   SelectBuilder& limit(detail::iproto::MpUint value)
   {
-    packer.pack_map_entry(detail::iproto::FieldType::Limit, value);
+    m_req.packer.pack_map_entry(detail::iproto::FieldType::Limit, value);
     return *this;
   }
 
   SelectBuilder& offset(detail::iproto::MpUint value)
   {
-    packer.pack_map_entry(detail::iproto::FieldType::Offset, value);
+    m_req.packer.pack_map_entry(detail::iproto::FieldType::Offset, value);
     return *this;
   }
 
   SelectBuilder& iterator(SelectIterator it)
   {
-    packer.pack_map_entry(detail::iproto::FieldType::Iterator,
+    m_req.packer.pack_map_entry(detail::iproto::FieldType::Iterator,
                           static_cast<detail::iproto::MpUint>(it));
     return *this;
   }
@@ -135,35 +167,49 @@ public:
   template<class K>
   SelectBuilder& key(K&& key)
   {
-    packer.pack_map_entry(detail::iproto::FieldType::Key, std::forward<decltype(key)>(key));
+    m_req.packer.pack_map_entry(detail::iproto::FieldType::Key, std::forward<decltype(key)>(key));
     return *this;
   }
 
   SelectBuilder& after_position(std::string pos)
   {
-    packer.pack_map_entry(detail::iproto::FieldType::AfterPosition, pos);
+    m_req.packer.pack_map_entry(detail::iproto::FieldType::AfterPosition, pos);
     return *this;
   }
 
   template<class K>
   SelectBuilder& after_tuple(K&& pos)
   {
-    packer.pack_map_entry(detail::iproto::FieldType::AfterTuple, std::forward<decltype(pos)>(pos));
+    m_req.packer.pack_map_entry(detail::iproto::FieldType::AfterTuple, std::forward<decltype(pos)>(pos));
     return *this;
   }
 
   SelectBuilder& fetch_position(bool val)
   {
-    packer.pack_map_entry(detail::iproto::FieldType::FetchPosition, val);
+    m_req.packer.pack_map_entry(detail::iproto::FieldType::FetchPosition, val);
     return *this;
+  }
+
+  /**
+   * @warning invalidates the object
+   */
+  SelectRequest build()
+  {
+    return std::move(m_req);
   }
 
 private:
   friend class Box;
 
-  Space m_space;
-  Index m_index;
-  detail::RequestPacker packer;
+  SelectRequest extract_packer()
+  {
+    return std::move(m_req);
+  }
+
+  // Space m_space;
+  // Index m_index;
+  // detail::RequestPacker packer;
+  SelectRequest m_req;
 };
 
 struct SelectResult
@@ -182,7 +228,7 @@ class Box
               if (std::holds_alternative<std::monostate>(space.value)) {
                 co_return state.complete(error_code {boost::system::errc::invalid_argument,
                                                      boost::system::system_category()},
-                                         {});
+                                         0);
               }
               if (std::holds_alternative<detail::iproto::SpaceId>(space.value)) {
                 co_return state.complete(error_code {},
@@ -211,7 +257,7 @@ class Box
         TNTPP_CO_COMPOSED<void(error_code, detail::iproto::IndexId)>(
             [this](auto state, SpaceVariant index) -> void
             {
-              if (std::holds_alternative<std::monostate>(space.value)) {
+              if (std::holds_alternative<std::monostate>(index.value)) {
                 co_return state.complete(error_code {boost::system::errc::invalid_argument,
                                                      boost::system::system_category()},
                                          {});
@@ -260,14 +306,41 @@ public:
   }
 
   template<class H>
-  auto select(SelectBuilder&& builder, H&& handle)
+  auto select(SelectRequest&& builder, H&& handle)
   {
-    // fetch
+    return boost::asio::async_initiate<H, void(error_code, IprotoFrame)>(
+        TNTPP_CO_COMPOSED<void(error_code, IprotoFrame)>(
+            [this](auto state, SelectRequest builder) -> void
+            {
+              auto [ec, space_index] =
+                  co_await get_space_index(builder.m_space, boost::asio::as_tuple(boost::asio::deferred));
+              if (ec) {
+                // @todo log error
+                co_return state.complete(ec, IprotoFrame {});
+              }
+              auto packer = std::move(builder.packer);
+              packer.pack_map_entry(detail::iproto::FieldType::SpaceId, space_index);
+              
+              // fetch index
+              packer.finalize_map();
+              packer.finalize();
+
+              auto res = co_await m_state->m_conn->send_request(
+                  builder.m_sync, std::move(packer), boost::asio::redirect_error(boost::asio::deferred, ec));
+              co_return state.complete(ec, std::move(res));
+            }),
+        handle,
+        std::move(builder));
   }
 
   SelectBuilder get_select_builder(Space space)
   {
     return SelectBuilder(space, m_state->m_conn->generate_id());
+  }
+
+  SelectBuilder get_select_builder(Space space, Index index)
+  {
+    return SelectBuilder(space, index, m_state->m_conn->generate_id());
   }
 
   // template<class K, class H>

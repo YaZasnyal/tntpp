@@ -79,10 +79,14 @@ bands = box.schema.space.create('bands',
       .get();
 
   box.select(tntpp::box::Space(512), 10, boost::asio::use_future);
-  
-  auto builder = box.get_select_builder(tntpp::box::Space(512));
-  builder.key(10).iterator(tntpp::box::SelectIterator::GT).limit(3);
-  box.select(std::move(builder), boost::asio::use_future);
+
+  auto select_res = box.select(box.get_select_builder(tntpp::box::Space(512))
+                                   .key(std::make_tuple(10))
+                                   .limit(1) // TODO: make default because it is mandatory
+                                   .build(),
+                               boost::asio::use_future)
+                        .get();
+  TNTPP_LOG(&logger, Info, "sel is_error={}", select_res.is_error());
   // box.remove(tntpp::box::Space(512), std::make_tuple(1), boost::asio::use_future).get();
   //  box.remove(tntpp::box::Space("bands"), std::make_tuple(1), boost::asio::use_future).get();
 

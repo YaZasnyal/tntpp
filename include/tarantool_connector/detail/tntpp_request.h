@@ -41,9 +41,28 @@ public:
     msgpack::pack(m_stream, std::forward<decltype(data)>(data));
   }
 
-  void begin_map(uint32_t count)
+  void begin_map(uint32_t count) { msgpack::packer(m_stream).pack_map(count); }
+
+  void begin_map()
   {
-    msgpack::packer(m_stream).pack_map(count);
+    uint16_t dummy = std::numeric_limits<uint16_t>::max();
+    static_assert(sizeof(dummy) == 2);
+    m_stream.write(reinterpret_cast<const char*>(&map_tag),  // NOLINT(*-pro-type-reinterpret-cast)
+                   1);
+    map_len_offset = m_stream.view().size();
+    m_stream.write(reinterpret_cast<const char*>(&dummy),  // NOLINT(*-pro-type-reinterpret-cast)
+                   sizeof(dummy));
+  }
+
+  void finalize_map()
+  {
+    assert(map_len_offset != 0);
+    uint16_t header_count = m_header_count;
+    boost::endian::native_to_big_inplace(header_count);
+    std::memcpy(const_cast<char*>(m_stream.view().data())  // NOLINT(*-pro-type-const-cast)
+                    + map_len_offset,  // NOLINT(*-pro-bounds-pointer-arithmetic)
+                &header_count,
+                sizeof(header_count));
   }
 
   template<class T>
@@ -51,6 +70,7 @@ public:
   {
     msgpack::pack(m_stream, static_cast<iproto::MpUint>(field));
     msgpack::pack(m_stream, std::forward<decltype(data)>(data));
+    ++m_header_count;
   }
 
   void finalize()
@@ -68,6 +88,9 @@ public:
 
 private:
   inline static const unsigned char size_tag = 0xce;
+  inline static const unsigned char map_tag = 0xde;
+  size_t map_len_offset {0};  // for finalize_map
+  uint16_t m_header_count {0};
   std::stringstream m_stream;
 };
 
