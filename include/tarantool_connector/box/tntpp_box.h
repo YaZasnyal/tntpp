@@ -471,7 +471,7 @@ public:
             [this](auto state,
                    detail::iproto::MpUint sync,
                    Space space,
-                   detail::RequestPacker packer) -> void
+                   detail::RequestPacker&& packer) -> void
             {
               auto [ec, space_index] =
                   co_await get_space_index(space, boost::asio::as_tuple(boost::asio::deferred));
@@ -523,7 +523,7 @@ public:
                    detail::iproto::MpUint sync,
                    Space space,
                    Space index,
-                   detail::RequestPacker packer) -> void
+                   detail::RequestPacker&& packer) -> void
             {
               auto [ec, space_index] =
                   co_await get_space_index(space, boost::asio::as_tuple(boost::asio::deferred));

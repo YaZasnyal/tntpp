@@ -76,13 +76,13 @@ public:
    * sent. Only that it was added to the send queue
    */
   template<class H>
-  auto send_request(const detail::Operation& request, H&& handler)
+  auto send_request(detail::Operation request, H&& handler)
   {
-    auto init = [this](auto handler, const detail::Operation& request)
+    auto init = [this](auto handler, detail::Operation request)
     {
       // dispatch function to the connection strand if we are not there already
       m_state->m_conn->get_strand().dispatch(
-          [this, handler = std::move(handler), &request]() mutable
+          [this, handler = std::move(handler), request=std::move(request)]() mutable
           {
             boost::asio::any_completion_handler<void(error_code, detail::IprotoFrame)> any_handler(
                 std::move(handler));
@@ -99,20 +99,21 @@ public:
     };
 
     return boost::asio::async_initiate<H, void(error_code, detail::IprotoFrame)>(
-        init, handler, std::ref(request));
+        init, handler, std::move(request));
   }
 
   template<class H>
-  auto send_request(detail::iproto::OperationId id, detail::RequestPacker buffer, H&& handler)
+  auto send_request(detail::iproto::OperationId id, detail::RequestPacker&& buffer, H&& handler)
   {
     return boost::asio::async_initiate<H, void(error_code, IprotoFrame)>(
         TNTPP_CO_COMPOSED<void(error_code, IprotoFrame)>(
             [this](
-                auto state, detail::iproto::OperationId id, detail::RequestPacker buffer) -> void
+                auto state, detail::iproto::OperationId id, detail::RequestPacker&& buffer) -> void
             {
-              auto [ec, buf] = co_await send_request(
+              detail::RequestPacker buffer2(std::move(buffer));
+                auto [ec, buf] = co_await send_request(
                   detail::Operation {
-                      .id = id, .data = detail::Data(buffer.str().data(), buffer.str().size())},
+                      .id = id, .data = detail::Data(buffer2.str().data(), buffer2.str().size())},
                   boost::asio::as_tuple(boost::asio::deferred));
 
               co_return state.complete(ec, std::move(buf));

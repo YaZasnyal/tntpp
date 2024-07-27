@@ -35,6 +35,13 @@ public:
                    sizeof(dummy));
   }
 
+  ~RequestPacker() { 
+      int i = 0;
+  }
+
+  RequestPacker(const RequestPacker&) = delete;
+  RequestPacker(RequestPacker&&) = default;
+
   template<class T>
   void pack(T&& data)
   {

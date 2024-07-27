@@ -21,13 +21,16 @@ static void simple_loop(benchmark::State& s)
         ctx.run();
       });
 
-  static tntpp::StdoutLogger logger(tntpp::LogLevel::Debug);
+  static tntpp::StdoutLogger logger(tntpp::LogLevel::Trace);
   auto conn =
       tntpp::Connector::connect(ctx.get_executor(),
                                 tntpp::Config().host("192.168.4.2").port(3301).logger(&logger),
                                 //.credentials("test", "test123"),
                                 boost::asio::use_future)
           .get();
+  TNTPP_LOG(&logger,
+            Info,
+            "Connected!");
   auto res = conn->eval("ghjghjg ...", std::vector {1, 2, 3}, boost::asio::use_future).get();
   TNTPP_LOG(&logger,
             Info,
@@ -70,23 +73,23 @@ bands = box.schema.space.create('bands',
                         .as<std::string>();
   TNTPP_LOG(&logger, Info, "error={}", std::get<0>(create_res));
 
-  auto insert_res = box.replace(tntpp::box::Space(512),
-                                std::make_tuple(10, "Test Band", 2023),
-                                boost::asio::use_future)
-                        .get();
-  box.replace(
-         tntpp::box::Space(512), std::make_tuple(10, "Test Band", 2024), boost::asio::use_future)
-      .get();
+  // auto insert_res = box.replace(tntpp::box::Space(512),
+  //                               std::make_tuple(10, "Test Band", 2023),
+  //                               boost::asio::use_future)
+  //                       .get();
+  // box.replace(
+  //        tntpp::box::Space(512), std::make_tuple(10, "Test Band", 2024), boost::asio::use_future)
+  //     .get();
 
-  box.select(tntpp::box::Space(512), 10, boost::asio::use_future);
+  // box.select(tntpp::box::Space(512), 10, boost::asio::use_future);
 
-  auto select_res = box.select(box.get_select_builder(tntpp::box::Space(512))
-                                   .key(std::make_tuple(10))
-                                   .limit(1) // TODO: make default because it is mandatory
-                                   .build(),
-                               boost::asio::use_future)
-                        .get();
-  TNTPP_LOG(&logger, Info, "sel is_error={}", select_res.is_error());
+  // auto select_res = box.select(box.get_select_builder(tntpp::box::Space(512))
+  //                                  .key(std::make_tuple(10))
+  //                                  .limit(1) // TODO: make default because it is mandatory
+  //                                  .build(),
+  //                              boost::asio::use_future)
+  //                       .get();
+  // TNTPP_LOG(&logger, Info, "sel is_error={}", select_res.is_error());
   // box.remove(tntpp::box::Space(512), std::make_tuple(1), boost::asio::use_future).get();
   //  box.remove(tntpp::box::Space("bands"), std::make_tuple(1), boost::asio::use_future).get();
 
